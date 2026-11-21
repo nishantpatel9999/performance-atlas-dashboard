@@ -32,7 +32,15 @@ inside my project].
    reconciled member contributions. If inputs are missing, show what you can
    verify and name the exact files or columns needed.
 
-3. For each strategy and portfolio, show equity, total return, compound annual
+3. Put all requested portfolios for this project in one report. Give each
+   portfolio a unique ID and a named option in the same Portfolio dropdown.
+   Use one website address if I ask you to host it. If I ask for a link to each
+   portfolio, give me that address and the dropdown names. Include links to
+   selections if the website supports them. Split reports only if I request
+   separate deliverables or the portfolios have different access rules.
+   Keep each portfolio's membership, equity, trades and evidence tied to its ID.
+
+   For each strategy and portfolio, show equity, total return, compound annual
    growth rate (CAGR), mean return of complete calendar years, signed monthly
    percentage returns, drawdown depth and recovery. Plot six-month rolling
    maximum drawdown and rolling Sharpe, Sortino, Calmar and volatility. Include
@@ -61,7 +69,10 @@ inside my project].
    python -m lab.performance.evidence --html HTML --series ID --out FILE
    python -m lab.performance.evidence --html HTML --series ID --check FILE
 
-Open the finished HTML. Test date filters, chart drill-down and data export.
+Open the finished HTML. Select every portfolio in the same Portfolio dropdown.
+Check its equity, members and available evidence against my records. Repeat
+this check at the website address if hosted, including at phone width.
+Test date filters, chart drill-down and data export.
 Deliver the report, evidence files, rebuild command and a short summary of
 findings and data gaps. Keep my data and report local unless I request sharing.
 ```

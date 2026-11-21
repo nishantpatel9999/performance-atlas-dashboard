@@ -1,6 +1,6 @@
 # Performance Atlas Dashboard reporting guide
 
-One HTML file holds the data, calculations and charts. It opens from disk and works without a server. Generate a separate file for each dataset you want to share. A recipient can read all embedded records, including trade histories and source metadata. The synthetic example includes a [reproducible evidence manifest](../examples/performance/research_tests/manifest.json).
+One HTML file holds the data, calculations and charts. It opens from disk and works without a server. Include the requested portfolios from one project in the same report. The **Portfolio** dropdown selects each portfolio. If you host the report, use one website address. Make separate files when the user requests them or when access rules require separate deliverables. A recipient can read all embedded records, including trade histories and source metadata. The synthetic example includes a [reproducible evidence manifest](../examples/performance/research_tests/manifest.json).
 
 ## Choose a view
 
@@ -32,7 +32,9 @@ Start with [the example manifest](../examples/performance/report.json), [its mon
 python3 -m lab.performance --config examples/performance/report.json --output results/example.html
 ```
 
-Each series has a unique `id`, a display `name`, a `kind` of `strategy`, `portfolio` or `benchmark`, a `currency`, a sampling `frequency` and `periodsPerYear`. Set `currency` to `INDEX` for dimensionless capital. A report can include multiple portfolios, benchmarks, strategy families, asset classes and overlapping histories. A currency-denominated benchmark can represent 100 units of that currency invested at its opening mark.
+Each series has a unique `id`, a display `name`, a `kind` of `strategy`, `portfolio` or `benchmark`, a `currency`, a sampling `frequency` and `periodsPerYear`. Set `currency` to `INDEX` for dimensionless capital. A currency-denominated benchmark can represent 100 units of that currency invested at its opening mark.
+
+Add one `kind: "portfolio"` entry per portfolio in the same `series` array. Each entry's `name` appears in the Portfolio dropdown. For example, add “All strategies” and “Risk-weighted selection” with different IDs and equity histories. Use the correct strategy IDs in each portfolio’s holdings, attribution and activity. A strategy can share one ID across portfolios if its records are identical. Give different strategy histories distinct IDs and display names. Verify each selection with its own evidence.
 
 | Input mode | Supply | Equity calculation |
 | --- | --- | --- |
