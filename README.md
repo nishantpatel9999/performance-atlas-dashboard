@@ -30,4 +30,6 @@ python3 -m lab.performance --config examples/performance/report.json --output re
 
 The portable builder uses the Python standard library. The Quantreo adapters use the upstream research environment. Both routes produce the same interface. The report also accepts optional benchmark, trade, cost, exposure and custom metric data. [Inputs, native commands and calculation methods](docs/performance.md)
 
+The fork includes a reusable skill for building and checking interactive reports. It covers every strategy and portfolio in the monthly calendars, the Metric explorer and margin drill-down. [Performance Atlas report skill](.agents/skills/performance-atlas-report/SKILL.md) · [Report acceptance checks](docs/report-coverage.md#verify-the-monthly-returns-a-reader-sees)
+
 The upstream project contains the research workflow, backtest engine, strategy examples, and construction and review processes. [Quantreo/ai-quant-pod](https://github.com/Quantreo/ai-quant-pod)

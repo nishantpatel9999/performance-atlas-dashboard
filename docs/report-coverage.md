@@ -33,6 +33,41 @@ PERFORMANCE_SERIES_RECEIPT=results/demo/series-preflight.json \
 python -m unittest discover -s tests -p test_performance_evidence.py
 ```
 
+## Verify the monthly returns a reader sees
+
+Keep an independent monthly reference for every interactive strategy and portfolio. Derive it from the original equity or net-return ledger before opening the generated report. Apply each series’ session dates, currency, cash-flow treatment and opening balance. For example, an account rising from 100 to 102 earns 2%. A subsequent fall from 102 to 96 loses 5.88%.
+
+For a funded account without external cash flows, divide the closing equity by the opening equity and subtract one. For cash flows, use a unitized equity series or compound the dated, cash-flow-adjusted returns. A fixed-capital P&L contribution first changes the equity path. Measure its return against that month’s opening equity. Keep cash changes, index points and percent returns in separate fields.
+
+Save the reference as a CSV with one row per measured month. A return is a fraction. Zero records an observed flat month. Leave a missing return blank or omit its row. Use the same series IDs as the report. Include a blank row for a series without any measurable month.
+
+```csv
+series_id,month,return_fraction
+strategy-a,2024-01,0.02
+strategy-a,2024-02,-0.0588235294117647
+strategy-a,2024-03,0
+strategy-a,2024-04,
+```
+
+Run this command with Python Playwright and Chromium installed. Supply a local Chrome executable through `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if needed.
+
+```sh
+python -m lab.performance.verify_calendar --html results/report.html --expected monthly-reference.csv
+```
+
+Try the complete example using the two funded sleeves in this checkout. Its reference uses the original monthly closing balances.
+
+```sh
+python -m lab.performance --config examples/performance/report.json --output results/sleeves.html
+python -m lab.performance.verify_calendar --html results/sleeves.html --expected examples/performance/monthly-reference.csv
+```
+
+The check reads the percentage printed in each cell and compares it with the reference at display precision. It checks the full-precision fraction separately. It selects each portfolio and strategy in both Overview and Calendar returns. Use `--receipt calendar-check.json` to retain the result. The master-quant-validator release check accepts this file through `--calendar-receipt calendar-check.json`. Add `--url YOUR_REPORT_URL` to verify that the delivered site serves the same HTML. A disagreement exits with an error and identifies the series, view and month.
+
+For a changed reporting implementation, also exercise a date filter, keyboard focus and a narrow screen. Check a gain, a loss, a flat month, an absent month and a partial boundary. Confirm that the calendar download retains full precision and names the account unit. Compare activity, trades, costs and benchmarks over the dates their source actually covers.
+
+For Metric explorer, verify that every applicable measure and custom diagnostic appears on the same page. Change its single rolling window. Check that both count-axis scales preserve bin membership, exact counts and zeros. For Activity and margin, zoom around a spike, select a session and compare the named strategies and contracts with its ledger. Check a timestamped intraday point, an overnight reference and a missing session. Include a position that closes intraday. Identify any later-schedule scenario in the graph and export.
+
 ## Supply research evidence
 
 Each canonical series accepts an optional `evidence` object. Supply only fields your source records.

@@ -6,6 +6,10 @@ An optional sessionDates list declares expected broker sessions. Missing labels 
 never inferred from an equity calendar. timeZone sets the civil-date bounds (default
 UTC). A supplied closeTime also filters the session by its exact timestamp.
 
+intradayMargin holds timestamped USD observations under the source's trading date.
+schedule_scenario identifies a later hypothetical schedule. Intraday observations
+and individual activePositions never supply an account total or a strategy count.
+
 Position records are per session/account/symbol/strategyId, with signed closeQty and
 optional heldDuring. intradayComplete and closeComplete certify each scope separately.
 Global declarations apply to dates with ledger records. An empty day needs explicit
@@ -27,15 +31,18 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
+from io import StringIO
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .inputs import (_array, _csv_number, _csv_path, _csv_rows, _fields, _json_value,
+from .inputs import (_array, _csv_number, _csv_path, _csv_rows, _fields, _json_value, _load_json,
                      _number, _read_json, _text, parse_time)
 
 
 BROKER_BASES = ("broker_requirement", "required_equity")
-BASES = (*BROKER_BASES, "schedule_estimate", "unknown")
+HISTORICAL_BASES = (*BROKER_BASES, "schedule_estimate")
+BASES = (*HISTORICAL_BASES, "schedule_scenario", "unknown")
+LEG_FIELDS = {"strategyId", "symbol", "account", "heldDuring", "closeQty", "marginUsd", "marginBasis"}
 COUNTS = ("active", "overnight")
 MEASURES = {*COUNTS, "marginUsd"}
 COVERAGE = {"intradayComplete", "closeComplete"}
@@ -45,7 +52,7 @@ CSV_TABLES = {"rows": ("csv", ("date",)),
               "rules": ("rulesCsv", ("id", "validFrom", "validTo", "side", "method")),
               "fx": ("fxCsv", ("date", "currency", "usdPerUnit")),
               "accountTotals": ("accountTotalsCsv", ("date", "account", "marginUsd", "marginBasis"))}
-NUMBERS = MEASURES | {"price", "multiplier", "closeQty", "usdPerUnit", "rate"}
+NUMBERS = MEASURES | {"price", "multiplier", "closeQty", "usdPerUnit", "rate", "overnightScenarioUsd"}
 FLAGS = COVERAGE | {"heldDuring", "complex"}
 DAY_MS = 86_400_000
 EPOCH = date(1970, 1, 1)
@@ -141,6 +148,8 @@ def _csv_records(path, columns):
                     if value.lower() not in ("true", "false"):
                         raise ValueError(f"{key} must be true or false")
                     record[key] = value.lower() == "true"
+                elif key in ("activePositions", "intradayMargin"):
+                    record[key] = _load_json(StringIO(value))
                 else:
                     record[key] = value
         except (ValueError, InvalidOperation) as exc:
@@ -173,7 +182,7 @@ class _Positions:
 
     def add(self, row):
         required = {"date", "account", "strategyId", "symbol"}
-        allowed = required | {"closeQty", "heldDuring", "product", "price", "multiplier", "currency", "complex", "offsetGroup"}
+        allowed = required | LEG_FIELDS | {"product", "price", "multiplier", "currency", "complex", "offsetGroup"}
         _fields(row, required, allowed, "activity position")
         account, symbol, strategy = (_text(row[k], f"position.{k}") for k in ("account", "symbol", "strategyId"))
         group = self.legs[account, symbol]
@@ -188,6 +197,8 @@ class _Positions:
             _positive(row["multiplier"], "position.multiplier")
         if "complex" in row:
             _flag(row["complex"], "complex")
+        if "marginUsd" in row or "marginBasis" in row:
+            _amount(row, BASES)
         qty, held = row.get("closeQty"), row.get("heldDuring")
         if held is not None:
             _flag(held, "heldDuring")
@@ -212,6 +223,12 @@ class _Positions:
                 raise ValueError(f"activity.{key} count disagrees with the dated position ledger")
             return declared
         return len(known) if complete and uncertain.issubset(known) else None
+
+    def active_legs(self):
+        for group in self.legs.values():
+            for row in group.values():
+                if row["closeQty"] or row.get("heldDuring") is True:
+                    yield _active_leg({k: row[k] for k in LEG_FIELDS if k in row})
 
 
 def _rule(row):
@@ -304,6 +321,81 @@ def _amount(row, allowed):
         if basis == "unknown":
             raise ValueError("a USD amount requires an explicit marginBasis")
     return value, basis
+
+
+def _intraday_points(raw, close):
+    result = []
+    for point in _array(raw, "activity.intradayMargin"):
+        _fields(point, {"time"}, {"time", "marginUsd", "marginBasis", "contributors"}, "intraday margin observation")
+        time = point["time"]
+        if isinstance(time, str):
+            try:
+                aware = datetime.fromisoformat(time.strip()).tzinfo is not None
+            except ValueError:
+                aware = False
+            if not aware:
+                raise ValueError("intraday margin time requires an ISO timestamp with a UTC offset")
+        time = parse_time(time)
+        if result and time <= result[-1]["time"]:
+            raise ValueError("intraday margin times must strictly increase")
+        if close is not None and time > close:
+            raise ValueError("intraday margin time exceeds the supplied session closeTime")
+        value, basis = _amount(point, BASES)
+        sample = {"time": time, "marginUsd": value, "marginBasis": basis}
+        if "contributors" in point:
+            sample["contributors"] = []
+            for leg in _array(point["contributors"], "intraday margin contributors"):
+                fields = {"strategyId", "symbol", "quantity", "marginUsd"}
+                _fields(leg, fields, fields | {"account"}, "intraday margin contributor")
+                record = {k: _text(leg[k], f"contributor.{k}") for k in ("strategyId", "symbol", "account") if k in leg}
+                record["quantity"] = _number(leg["quantity"], "contributor.quantity")
+                record["marginUsd"] = _cash(leg["marginUsd"], "contributor.marginUsd")
+                sample["contributors"].append(record)
+        result.append(sample)
+    return result
+
+
+def _active_leg(raw):
+    _fields(raw, {"strategyId", "symbol"}, LEG_FIELDS, "activity.activePositions entry")
+    leg = {k: _text(raw[k], f"position.{k}") for k in ("strategyId", "symbol")}
+    if raw.get("account") is not None:
+        leg["account"] = _text(raw["account"], "position.account")
+    if raw.get("heldDuring") is not None:
+        leg["heldDuring"] = _flag(raw["heldDuring"], "heldDuring")
+    if raw.get("closeQty") is not None:
+        leg["closeQty"] = _number(raw["closeQty"], "position.closeQty")
+        if leg["closeQty"] and leg.get("heldDuring") is False:
+            raise ValueError("nonzero closeQty conflicts with heldDuring=false")
+    if "marginUsd" in raw or "marginBasis" in raw:
+        leg["marginUsd"], leg["marginBasis"] = _amount(raw, BASES)
+    return leg
+
+
+def _active_positions(declared, positions):
+    by_leg = {(p["strategyId"], p["symbol"], p["account"]): p for p in positions.active_legs()}
+    accounts = defaultdict(list)
+    for key in by_leg:
+        accounts[key[:2]].append(key[2])
+    seen = set()
+    for leg in declared:
+        pair = (leg["strategyId"], leg["symbol"])
+        account = leg.get("account")
+        if account is None and pair in accounts:
+            if len(accounts[pair]) != 1:
+                raise ValueError("activePositions needs an account to identify a leg held in multiple accounts")
+            account = accounts[pair][0]
+        key = (*pair, account)
+        if key in seen:
+            raise ValueError(f"duplicate activePositions leg {key}")
+        seen.add(key)
+        existing = by_leg.setdefault(key, {})
+        for field, value in leg.items():
+            if value is not None and existing.get(field) is not None and existing[field] != value:
+                raise ValueError(f"activePositions disagrees with the position ledger for {key} / {field}")
+            if value is not None or field not in existing:
+                existing[field] = value
+        by_leg[key] = _active_leg(existing)
+    return list(by_leg.values())
 
 
 def _totals_by_day(records):
@@ -401,12 +493,17 @@ def _estimate(day, positions, schedule, quotes):
 
 
 def _snapshot(row):
-    available = {"date", "marginBasis", "closeTime", "gaps", "marginDetails", "accountIds", "marginModel"}
+    available = {"date", "marginBasis", "closeTime", "gaps", "marginDetails", "accountIds", "marginModel",
+                 "intradayMargin", "activePositions", "overnightScenarioUsd"}
     _fields(row, {"date"}, available | MEASURES | COVERAGE | DESCRIPTIVE, "activity snapshot")
     _day(row["date"])
     result = {"date": row["date"], **_metadata(row)}
     if "closeTime" in row:
         result["closeTime"] = parse_time(row["closeTime"])
+    if "intradayMargin" in row:
+        result["intradayMargin"] = _intraday_points(row["intradayMargin"], result.get("closeTime"))
+    if "activePositions" in row:
+        result["activePositions"] = [_active_leg(p) for p in _array(row["activePositions"], "activity.activePositions")]
     for key in COUNTS:
         value = row.get(key)
         if value is not None:
@@ -420,6 +517,17 @@ def _snapshot(row):
         _fields(gaps, set(), MEASURES, "activity.gaps")
         result["gaps"] = {k: _text(v, f"gaps.{k}") for k, v in gaps.items()}
     result["marginUsd"], result["marginBasis"] = _amount(row, BASES)
+    scenarios = []
+    for source in (row, result.get("metadata", {})):
+        if "overnightScenarioUsd" in source:
+            value = source["overnightScenarioUsd"]
+            scenarios.append(None if value is None else _cash(value, "overnightScenarioUsd"))
+    if result["marginBasis"] == "schedule_scenario":
+        scenarios.append(result["marginUsd"])
+    if scenarios:
+        if any(value != scenarios[0] for value in scenarios):
+            raise ValueError("overnightScenarioUsd disagrees with another value for the same scenario close")
+        result["overnightScenarioUsd"] = scenarios[0]
     if "marginDetails" in row:
         if not isinstance(row["marginDetails"], dict):
             raise ValueError("activity.marginDetails must be an object")
@@ -447,13 +555,16 @@ def _session(day, snapshot, positions, has_ledger, defaults, totals, schedule, q
             gaps[key] = supplied_gaps.get(key, f"The session lacks a complete {key} strategy count.")
     if row["active"] is not None and row["overnight"] is not None and row["active"] < row["overnight"]:
         raise ValueError(f"{day}: overnight cannot exceed active")
+    if "activePositions" in row or positions.legs or complete["intradayComplete"]:
+        legs = _active_positions(row.get("activePositions", []), positions)
+        if legs or "activePositions" in row or (complete["intradayComplete"] and row["active"] == 0):
+            row["activePositions"] = legs
     # A plain canonical snapshot may carry a separately sourced and labeled estimate.
     # If the caller also supplies accounting evidence, prefer the dated broker totals
     # or compute from that evidence. An old estimate cannot certify an unsupported day.
-    external_estimate = row.get("marginBasis") == "schedule_estimate"
+    external_estimate = row.get("marginBasis") in ("schedule_estimate", "schedule_scenario")
     has_new_evidence = has_ledger or totals or model is not None
     if row.get("marginUsd") is None or (external_estimate and has_new_evidence):
-        row.pop("marginDetails", None)
         amount = None
         if totals:
             amount, reason = _account_margin(totals, accounts, positions)
@@ -465,11 +576,12 @@ def _session(day, snapshot, positions, has_ledger, defaults, totals, schedule, q
             reason = "The closing positions exceed the declared account scope."
         else:
             amount, reason = _estimate(day, positions, schedule, quotes)
-        if amount is None:
+        if amount is not None:
+            row.update(amount)
+        elif row.get("marginBasis") != "schedule_scenario" or row.get("marginUsd") is None:
+            row.pop("marginDetails", None)
             row.update(marginUsd=None, marginBasis="unknown")
             gaps["marginUsd"] = supplied_gaps.get("marginUsd", reason)
-        else:
-            row.update(amount)
     if gaps:
         row["gaps"] = gaps
     return row
@@ -512,11 +624,17 @@ def build_activity(spec, *, session_dates=None, base_dir=None, output=None):
     defaults["accountIds"] = _account_ids(spec["accountIds"]) if "accountIds" in spec else None
     snapshots, ledger = {}, defaultdict(_Positions)
     previous = ""
+    previous_point = None
     for raw in tables["rows"]:
         row = _snapshot(raw)
         day = row["date"]
         if day <= previous:
             raise ValueError("activity snapshot dates must be unique and strictly increasing")
+        points = row.get("intradayMargin")
+        if points:
+            if previous_point is not None and points[0]["time"] <= previous_point:
+                raise ValueError("intraday margin times must strictly increase across session dates")
+            previous_point = points[-1]["time"]
         previous = day
         snapshots[day] = row
     for raw in tables["positions"]:
@@ -565,17 +683,22 @@ def _ordinal(mark, zone):
         raise ValueError("equity date is outside the supported activity time zone range") from exc
 
 
-def validate_activity(spec, first, last, terminal):
+def validate_activity(spec, first, last, terminal, *, exhausted=False):
     """Validate the full source horizon before truncating at the first nonpositive equity mark."""
     result = build_activity(spec)
     zone = ZoneInfo(result["timeZone"]) if "timeZone" in result else None
     first_day, last_day, end_day = (_ordinal(mark, zone) for mark in (first, last, terminal))
+    cut_at_terminal = exhausted or terminal < last
     keep = []
     previous = None
     for row in result["rows"]:
         ordinal = date.fromisoformat(row["date"]).toordinal()
+        points = row.get("intradayMargin", [])
         if not first_day <= ordinal <= last_day:
-            raise ValueError(f"{row['date']}: activity session outside the source equity history")
+            # A retained overnight prefix can carry the following trading date even
+            # when a second validation sees only the already-truncated equity path.
+            if not (cut_at_terminal and ordinal > last_day and any(first <= p["time"] <= terminal for p in points)):
+                raise ValueError(f"{row['date']}: activity session outside the source equity history")
         include = ordinal <= end_day
         if "closeTime" in row:
             t = row["closeTime"]
@@ -583,6 +706,15 @@ def validate_activity(spec, first, last, terminal):
                 raise ValueError(f"{row['date']}: activity closeTime outside the equity history or out of order")
             previous = t
             include = include and t <= terminal
+        if points and cut_at_terminal:
+            prefix = [p for p in points if p["time"] <= terminal]
+            if not include or len(prefix) < len(points):
+                # A session can straddle exhaustion. Only its timestamped prefix is known by then.
+                if prefix:
+                    keep.append({"date": row["date"], "intradayMargin": prefix, "active": None,
+                                 "overnight": None, "marginUsd": None, "marginBasis": "unknown",
+                                 "gaps": {k: "The session continued after equity exhaustion." for k in MEASURES}})
+                continue
         if include:
             keep.append(row)
     result["rows"] = keep

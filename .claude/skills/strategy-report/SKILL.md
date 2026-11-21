@@ -1,9 +1,11 @@
 ---
 name: strategy-report
-description: Write the report of a strategy, a research note in PDF (LaTeX, numbered sections, tables with bootstrap ranges, figures in the desk style) covering performance, market exposure, sources of P&L, concentration, implementation, robustness, luck, risks and decision. Use whenever the user asks for a report, a tear sheet, a PDF, a summary or a one-pager on a strategy, or after a Pass 2, a Red team or a test.
+description: "Write a strategy research note or an interactive Performance Atlas report from saved results. Use for a strategy tear sheet, PDF, HTML dashboard, or post-test report covering returns, drawdowns, costs, robustness and risk."
 ---
 
 # Strategy report
+
+For an interactive strategy report, generate Performance Atlas from the saved account history. Follow the [HTML reporting guide](../../../docs/performance.md) and run the [visible monthly-return check](../../../docs/report-coverage.md#verify-the-monthly-returns-a-reader-sees) on the delivered file. Use the PDF workflow below when the requested output is a research note.
 
 The reader is a professional deciding what to do with the strategy. They want the worst news first, every claim backed by a number, and a document that looks like a research note, not a dashboard. The script computes every number and every figure; your job is the reading: short, exact paragraphs that say what the tables and figures mean.
 

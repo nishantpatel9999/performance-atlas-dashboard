@@ -364,14 +364,27 @@ def _original_accounts(manifest, series, supplied, source):
         rows = ledger["rows"]
         counts = [r["active"] for r in rows if r["active"] is not None]
         peaks = {}
+        scenarios = []
         for row in rows:
             value, basis = row["marginUsd"], row["marginBasis"]
-            if value is not None and (basis not in peaks or value > peaks[basis]["usd"]):
+            scenario = row.get("overnightScenarioUsd")
+            if scenario is None and basis == "schedule_scenario":
+                scenario = value
+            if scenario is not None:
+                scenarios.append({"date": row["date"], "usd": scenario})
+            if value is not None and basis != "schedule_scenario" and (basis not in peaks or value > peaks[basis]["usd"]):
                 peaks[basis] = {"date": row["date"], "usd": value}
         manifest["session_activity"] = {
             "source": ledger["source"], "series_field": "activity.rows", "session_records": len(rows),
             "active_count_observations": len(counts), "overnight_count_observations": sum(r["overnight"] is not None for r in rows),
-            "requirement_observations": sum(r["marginUsd"] is not None for r in rows),
+            "requirement_observations": sum(r["marginUsd"] is not None and r["marginBasis"] != "schedule_scenario" for r in rows),
+            "scenario_observations": len(scenarios),
+            "peak_overnight_scenario": max(scenarios, key=lambda p: p["usd"], default=None),
+            "intraday_observations_by_basis": {
+                basis: sum(p["marginBasis"] == basis and p["marginUsd"] is not None
+                           for r in rows for p in r.get("intradayMargin", []))
+                for basis in sorted({p["marginBasis"] for r in rows for p in r.get("intradayMargin", [])})
+            },
             "active_share_of_measured_sessions": fmean(n > 0 for n in counts) if counts else None,
             "peak_requirement_by_basis": peaks,
         }

@@ -16,6 +16,7 @@
   --activity: #006f80;
   --overnight: #80600b;
   --margin: #7546ab;
+  --intraday: #ad501c;
   --grid: #dce3ed;
   --action: #233f74;
   --action-text: #ffffff;
@@ -743,8 +744,8 @@ tbody tr:last-child th {
   color: var(--muted);
 }
 .heat {
-  table-layout: fixed;
-  min-width: 280px;
+  table-layout: auto;
+  min-width: max-content;
   border-collapse: separate;
   border-spacing: 3px;
   text-align: center;
@@ -759,7 +760,7 @@ tbody tr:last-child th {
   text-align: center;
 }
 .heat thead th {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   text-align: center;
 }
@@ -769,12 +770,32 @@ tbody tr:last-child th {
   padding: 3px 1px;
   width: 38px;
 }
+.heat th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+}
 .heat td {
   height: 25px;
   border-radius: 4px;
   background: var(--faint);
-  font-size: 9px;
+  padding-inline: 3px;
+  font-size: 11px;
   font-weight: 550;
+}
+.heat td:last-child {
+  padding-inline: 3px;
+}
+@media screen and (min-width: 1351px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  }
+}
+@media screen and (min-width: 761px) and (max-width: 1350px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .heat td[data-tip]:hover,
 .heat td[data-tip]:focus {
@@ -794,6 +815,28 @@ tbody tr:last-child th {
   width: 14px;
   height: 9px;
   border-radius: 2px;
+}
+.heat-scale .coverage-key {
+  margin-right: auto;
+}
+.heat sup {
+  font-size: .75em;
+}
+.count-scale {
+  display: block;
+  margin: 2px 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.count-scale:hover, .count-scale:focus-visible {
+  color: var(--ink);
+  border-color: var(--brand);
 }
 .allocation-list {
   list-style: none;
@@ -1302,6 +1345,7 @@ dialog select {
   --activity: #5ed5df;
   --overnight: #f2cb71;
   --margin: #c0a0ff;
+  --intraday: #ffab79;
   --grid: #354255;
   --action: #a9caff;
   --action-text: #152944;
@@ -1601,3 +1645,47 @@ dialog select {
 #settings .atlas-term-tip {
   pointer-events: none;
 }
+
+#explorer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 16px;
+}
+.explorer-card {
+  overflow-wrap: anywhere;
+}
+.explorer-card figure {
+  min-width: 0;
+  margin: 0 0 12px;
+}
+.explorer-card figcaption,
+.explorer-summary dt,
+.explorer-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.explorer-card figcaption {
+  margin-bottom: 4px;
+}
+.explorer-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.explorer-summary dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.explorer-summary small {
+  display: block;
+  font-weight: 400;
+}
+
+.activity-zoom { display: flex; flex-wrap: wrap; gap: 5px; }
+.activity-detail-title { margin: 16px 0 6px; font-size: 13px; }
+.session-samples { margin-block: 12px; }

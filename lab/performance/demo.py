@@ -91,9 +91,15 @@ def demo_bundle():
     # These illustrative rates belong to the synthetic market. Each sleeve holds a
     # distinct instrument, so its standalone closing requirement is additive.
     margin_fractions = ((0.48, 0.58), (0.12, 0.15), (0.16, 0.19), (0.05, 0.07))
+    symbols = ("DEMO-EQUITY", "DEMO-BOND", "DEMO-COMMODITY", "DEMO-FX")
+
+    def margin_point(time, value):
+        return {"time": time, "marginUsd": round(value, 2), "marginBasis": "schedule_estimate"}
+
     entry_thresholds = (0.0012, 0.0007, 0.007, 0.75)
     session_rows = [{"date": START.isoformat(), "active": 0, "overnight": 0,
-                     "marginUsd": 0.0, "marginBasis": "schedule_estimate"}]
+                     "closeTime": times[0], "marginUsd": 0.0, "marginBasis": "schedule_estimate",
+                     "intradayMargin": [margin_point(times[0], 0)], "activePositions": []}]
     for sleeve in sleeves:
         sleeve.equity.append(sleeve.capital)
     regime, remaining, last_commodity = 0, 225, 0.0
@@ -114,7 +120,7 @@ def demo_bundle():
         for i, move in enumerate(moves):
             trend[i] = 0.94 * trend[i] + 0.06 * move
         signals = (trend[0], 1 if trend[0] < 0 else trend[1] + 0.0003, -commodity, carry)
-        previously_open = [s.units != 0 for s in sleeves]
+        opening_units = [s.units for s in sleeves]
         for i, sleeve in enumerate(sleeves):
             previous = prices[i]
             prices[i] *= 1 + moves[i]
@@ -127,9 +133,18 @@ def demo_bundle():
         notionals = [s.units * price for s, price in zip(sleeves, prices)]
         overnight = [s.units != 0 for s in sleeves]
         requirement = sum(abs(n) * rates[int(n < 0)] for n, rates in zip(notionals, margin_fractions))
-        session_rows.append({"date": dates[bar].isoformat(),
-                             "active": sum(before or after for before, after in zip(previously_open, overnight)),
-                             "overnight": sum(overnight), "marginUsd": round(requirement, 2), "marginBasis": "schedule_estimate"})
+        # The synthetic open repeats the previous close. At the pre-trade mark the
+        # current prices are known and all sleeves still hold their opening quantities.
+        pretrade = sum(abs(units * price) * rates[int(units < 0)]
+                       for units, price, rates in zip(opening_units, prices, margin_fractions))
+        close = times[bar]
+        points = [margin_point(close - 390 * 60_000, session_rows[-1]["marginUsd"]),
+                  margin_point(close - 1, pretrade), margin_point(close, requirement)]
+        legs = [{"strategyId": s.id, "symbol": symbol, "heldDuring": True, "closeQty": s.units}
+                for s, symbol, before in zip(sleeves, symbols, opening_units) if before or s.units]
+        session_rows.append({"date": dates[bar].isoformat(), "closeTime": close, "active": len(legs),
+                             "overnight": sum(overnight), "marginUsd": points[-1]["marginUsd"],
+                             "marginBasis": "schedule_estimate", "intradayMargin": points, "activePositions": legs})
         gross_exposure.append(sum(abs(n) for n in notionals) / portfolio_nav)
         net_exposure.append(sum(notionals) / portfolio_nav)
 
@@ -153,7 +168,9 @@ def demo_bundle():
                 assetClass="Multi-asset", family="Funded sleeves", benchmarkId=BENCHMARK,
                 activity={"source": "Simulated positions at each weekday close. The model applies illustrative "
                           "long/short fractions to closing USD notional. Equities 48%/58%, fixed income 12%/15%, "
-                          "commodities 16%/19%, currencies 5%/7%. Each sleeve holds a separate instrument.",
+                          "commodities 16%/19%, currencies 5%/7%. Each sleeve holds a separate instrument. "
+                          "Synthetic intraday marks use the previous close at 14:30 UTC and the current price "
+                          "immediately before and after the 21:00 UTC rebalance.",
                           "rows": session_rows},
                 accounting="Total net equity of four separately funded USD sleeves. Each sleeve retains its P&L.",
                 costModel="Commissions and slippage from the four sleeve ledgers.",

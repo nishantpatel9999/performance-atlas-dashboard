@@ -12,15 +12,17 @@ One HTML file holds the data, calculations and charts. It opens from disk and wo
 | Activity and margin | How many strategies held risk during each session? How many remained open at the close? Inspect their counts beside the overnight USD requirement. Select a date to see its source or calculation. |
 | Calendar returns | Which years and months contributed? Compare each year's return, maximum drawdown and Sharpe. Read the mean of complete years separately from full-period CAGR. The monthly heatmap also shows changes in account units. |
 | Trades and costs | Inspect trade P&L, win rate, profit factor, payoff, expectancy, win and loss streaks, holding time, chronological trade results and recorded costs. Compare counts, gross profit and loss, expectancy, and winner or loser concentration for all, long and short trades. |
-| Metric explorer | Chart an individual metric, inspect its distribution and download its dated values. Add your own measured series, such as net exposure or turnover. |
+| Metric explorer | See each measure’s history, distribution and observations on one page. One window selector controls all rolling measures. Add your own measured series, such as net exposure or turnover. |
 | Comparisons | Filter the strategy scorecard by name, family or asset class. Compare two indexed capital paths on a common window. Inspect correlation, beta, alpha, tracking error, information ratio, capture and rolling correlation. Open the strategy correlation matrix from either scope. Choose a focus strategy to see its coefficients and matched return counts. **Show all strategies** displays the full comparison group. A portfolio can also show construction weights and reconciled contributions. |
 | Evidence and methods | Check the capital basis, cost assumptions, timestamps, sample size, gaps, calculation conventions and research-test coverage. |
 
 The **System** appearance follows the operating system. Choose **Light** or **Dark** in the header to override it. The browser remembers the choice when it permits local storage. Hover, focus or tap a marked term for a plain-language definition. **Glossary** searches the terms in the offline HTML, including descriptions supplied with custom metrics. A report may also supply a top-level `glossary` object that maps a custom term to its definition.
 
-Use **Settings** to change the date range, rolling window, annual risk-free rate or downside target. Use a chart's pointer or left and right arrow keys to inspect individual marks. **Export data** downloads the selected equity and drawdown series. In Metric explorer it downloads the selected metric. In Activity and margin it downloads dated counts, the dollar requirement, and its basis. Source totals retain their original dates.
+Use **Settings** to change the date range, rolling window, annual risk-free rate or downside target. Use a chart's pointer or left and right arrow keys to inspect individual marks. **Export data** downloads the selected equity and drawdown series. In Metric explorer it downloads every displayed measure with its unit, timestamp and rolling window. In Activity and margin it downloads dated counts, the dollar requirement, and its basis. Source totals retain their original dates.
 
 **Interpreting the additional statistics.** The gain-to-pain ratio divides the sum of signed period returns by the absolute sum of negative returns. Cumulative log return is the natural logarithm of ending equity divided by opening equity. Both equity values must be positive. In the trade table, the largest winner’s share of gross profit and largest loser’s share of gross loss show whether a few trades dominate the result. The rolling success percentages use overlapping historical windows. The table gives the eligible count and exclusions for each horizon.
+
+Both monthly heatmaps print the signed percentage. Use **All months** to open the full calendar. The second line in the full table shows the change in account currency or index points. **Export data** on that page saves the selected months with their percentage return and change in equity. [Verify a new report against its source ledger](report-coverage.md#verify-the-monthly-returns-a-reader-sees)
 
 ## Connect a project
 
@@ -72,17 +74,26 @@ render_bundle({
 | `tradesCsv` | CSV with `time,pnl` for each closed trade. Optional `side` and `holdingHours` columns enable side and holding-time analysis. An inline `trades` array uses epoch milliseconds. |
 | `tradeSummary`, `costs`, `sourceMetrics` | Full-history source figures. Include cost currency and identify the costs covered by each total. The date filter applies to dated observations. |
 | `holdings` | A list of `{"id":"strategy-id","weight":0.30}` objects. State the date and meaning of the snapshot in `evidence.holdingsBasis`, such as ending net equity or target risk budget. |
-| `evidence.attribution` | For explicitly funded sleeves, set `{"basis":"funded_equity","members":["trend","carry"]}`. The analyzer checks the currency, dates and portfolio reconciliation before reporting contributions. |
+| `evidence.attribution` | For funded sleeves, set `{"basis":"funded_equity","members":["trend","carry"]}` and supply their equity histories. For an additive paper book, set `{"basis":"paper_additive"}` and supply daily member P&L. |
+| `evidence.paperContributions` | For a paper book, supply UTC close `dates`, a `byMember` object with one numeric array per member ID, and `unit: "fraction of opening paper index"`. Each value is the member’s already-sized daily P&L divided by the book’s original opening capital. |
 | `diagnostics` | Additional dated measurements for each strategy or portfolio. Each record has `name`, `unit`, optional `description`, and `times` and `values` arrays or a relative CSV. Unit `%` takes fractions. Missing values appear as gaps. |
 | `evidence` | Attach run version, rules, time splits, cost assumptions, capacity estimates and completed research tests. [Evidence manifest and coverage](report-coverage.md) |
 
-For example, this diagnostic reads two columns from a local CSV. Use the same pattern for gross or net exposure, turnover, leverage, margin, costs, fill rate or option sensitivities. Keep the actual unit on each measurement.
+For example, this diagnostic reads two columns from a local CSV. Use the same pattern for gross or net exposure, turnover, leverage, margin, costs, fill rate or option sensitivities. Keep the actual unit on each measurement. Each custom measure appears beside the built-in charts.
 
 ```json
 {"name":"Gross exposure","unit":"%","csv":"exposure.csv","dateColumn":"date","valueColumn":"gross","description":"Absolute market value divided by net asset value."}
 ```
 
 Some measures need additional evidence before they have a clear interpretation. Liquidity and capacity need order size, market volume and a cost or impact model. Trade excursions need prices while each trade was open. Portfolio contribution needs reconciled component histories. Walk-forward, cost stress, parameter sensitivity and resampling need actual test runs. Use the coverage view to see which records the source supplies.
+
+### Additive paper attribution
+
+Supply one opening equity mark, then one close per contribution date in increasing UTC date order. The opening and first close can share a date. A recorded zero means the member had zero P&L. A missing observation leaves attribution unavailable. If `evidence.attribution` also supplies `start`, `end`, or a `members` object with full-history `returnContribution` values, those declarations must agree with the daily records. The unit string also accepts “fraction of the opening paper index.”
+
+Comparisons checks the sum of member P&L against each equity change and the full book change, in fractions of original capital. For the selected dates it sums each member’s fractions, multiplies by original capital, and divides by the portfolio equity at the selected opening mark. The resulting percentages add to the selected portfolio return. All three reconciliations use an absolute tolerance of `1e-10` in their respective return units. For example, daily member fractions totaling 0.06 on a book that opened at 100 contribute 5.45 percentage points to a window that opened at 110. The rule also applies to USD-valued paper books. The saved fractions already include position sizing.
+
+Risk shares use the report’s sampled portfolio returns within the selection. For each usable interval the analyzer sums each member’s P&L between the same two equity marks and divides it by that interval’s opening equity. Each share equals the covariance of those member and portfolio returns divided by portfolio return variance. Shares can be negative. The panel shows the interval count when shares are available. It keeps reconciled return contributions when fewer than two intervals qualify, portfolio variance is effectively zero, or the measured shares fail to sum to one within `1e-8`. Construction risk budgets and source-reported rolling variance shares remain separate measures.
 
 ## Historical activity and overnight margin
 
@@ -103,6 +114,20 @@ Broker buying power, interest paid on a margin loan, account equity, and the ove
 **To calculate an estimate**, supply signed closing quantities per account, strategy and exact instrument. Set `heldDuring` for positions that opened and closed in one session. Declare the coverage of the intraday and closing ledgers. For a simple additive model use `marginModel: "simple_net"`. A dated rule must cover the session, instrument or product, and closing side. Per-contract rules multiply the absolute net contract count by the applicable amount. Notional rules also use the closing price, contract multiplier and rate. A non-USD rule needs the same session’s USD exchange rate. Enter the actual rule inputs for each instrument, including currency futures, spot FX or commodity contracts. Symbols with distinct expirations or option terms need distinct identifiers.
 
 The five-session example shows a modeled USD 318 requirement on December 22, a missing FX rate on December 26, an account-level options amount on December 27, required equity on December 28, and an intraday exit with zero overnight margin on December 29. All figures are synthetic. Click a date to see the inputs behind a calculation. The seven-year standalone demo uses actual simulated positions, with explicitly illustrative long and short rates. [Worked example](../examples/performance/overnight.json)
+
+### Inspect a margin spike
+
+Scroll over a point to zoom the aligned activity and USD charts. Drag over a date range to inspect a region. Click a date to pin its details. **Selected session** focuses on that trading day. **Reset zoom** restores the current date range. The detail table lists the supplied strategy IDs, instruments, closing quantities and attributed margin. An account-level requirement can include offsets across trades. Supply a per-position amount only when the source attributes that amount.
+
+Each session can include `intradayMargin`, an ordered array of observations with `time`, `marginUsd` and `marginBasis`. Give the timestamp an explicit offset or use UTC epoch milliseconds. Keep the source’s trading date for sessions that cross midnight. Intraday and overnight values share the USD axis. A missing observation breaks the line. An observed zero is a valid amount. An optional `activePositions` list identifies strategies and instruments, including those that went flat before the close.
+
+A session can carry `overnightScenarioUsd` alongside its historical closing amount. An intraday observation can carry `contributors` with `strategyId`, `symbol`, signed `quantity` and attributed `marginUsd`. Selecting the observation displays those contributions at the recorded instant. Label any ranked subset and state how many positions the total covers.
+
+Use `schedule_scenario` for a later or hypothetical schedule applied to historical positions. Identify the rate date, capital and sizing assumptions. A scenario must be visible as such in the chart, export and drill-down. A historical close alone supplies no intraday observations.
+
+### Read skewed distributions
+
+Each Metric explorer card keeps the original value intervals and observation counts. Concentrated distributions start with a logarithmic count axis. The height uses `log(1 + count)` so zero remains zero. Click the axis label to switch between linear and logarithmic heights. The horizontal values and the counts shown on hover or keyboard focus stay in their original units.
 
 ## Native Quantreo runs
 

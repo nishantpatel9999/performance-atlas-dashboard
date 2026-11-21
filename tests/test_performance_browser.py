@@ -1,4 +1,6 @@
 """Browser regression checks. Install Playwright and its Chromium browser to run."""
+import csv
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -72,17 +74,28 @@ class ReportBrowserTests(unittest.TestCase):
         self.assertEqual(page.locator("h1").inner_text(), "Strategy overview")
         self.assertIn("Carry", page.locator("#series-select option:checked").inner_text())
 
-    def test_metric_explorer_exports_the_selected_measure(self):
+    def test_metric_explorer_exports_all_displayed_measures(self):
         page = self.page
         page.locator('[data-view="explorer"]').click()
-        page.locator("#explorer-metric").select_option("returns")
-        self.assertEqual(page.locator("#explorer-chart svg").count(), 1)
+        self.assertEqual(page.locator("#explorer-chart-returns svg").count(), 1)
         with page.expect_download() as result:
             page.get_by_role("button", name="Export data").click()
-        rows = Path(result.value.path()).read_text().splitlines()
-        self.assertIn("timestamp_utc,value", rows[0])
-        self.assertIn("returns", result.value.suggested_filename)
-        self.assertGreater(len(rows), 100)
+        with Path(result.value.path()).open(newline="") as file:
+            reader = csv.DictReader(file)
+            self.assertEqual(reader.fieldnames, ["measure_id", "measure", "timestamp_utc", "value", "unit", "window_months"])
+            rows = list(reader)
+        chart_ids = page.locator('#explorer-grid [id^="explorer-chart-"]').evaluate_all(
+            "charts => charts.map(e => e.id.slice('explorer-chart-'.length))")
+        self.assertEqual({r["measure_id"] for r in rows}, set(chart_ids))
+        self.assertIn("-measures-", result.value.suggested_filename)
+        returns = [r for r in rows if r["measure_id"] == "returns"]
+        self.assertGreater(len(returns), 100)
+        self.assertEqual(returns[-1]["unit"], "%")
+        self.assertEqual(returns[-1]["window_months"], "")
+        account = next(s for s in json.loads(page.locator("#report-data").text_content())["series"]
+                       if s["id"] == page.locator("#series-select").input_value())
+        self.assertAlmostEqual(float(returns[-1]["value"]), 100 * (account["equity"][-1] / account["equity"][-2] - 1))
+        self.assertEqual({r["window_months"] for r in rows if r["measure_id"].startswith("rolling-")}, {"6"})
 
     def test_indexed_chart_uses_the_same_opening_mark_as_headline_return(self):
         page = self.page

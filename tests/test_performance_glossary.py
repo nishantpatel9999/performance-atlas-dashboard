@@ -305,7 +305,8 @@ class GlossaryTests(unittest.TestCase):
             self.assertLessEqual(bounds["x"] + bounds["width"], 320)
             self.assertLessEqual(bounds["y"] + bounds["height"], 640)
             p.keyboard.press("Escape")
-            self.assertEqual(p.locator("#explorer-metric option:checked").inner_text(), "Settlement band")
+            self.assertTrue(p.locator("#explorer-chart-source-0 svg").is_visible())
+            self.assertTrue(p.locator("#explorer-chart-returns svg").is_visible())
             self.assertLessEqual(p.locator("body").evaluate("el => el.scrollWidth"), 320)
 
     def test_generated_desktop_scope_actions_legends_and_range_clicks(self):

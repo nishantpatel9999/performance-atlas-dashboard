@@ -1,5 +1,5 @@
 {
-  "source": "Five synthetic sessions with invented rates and broker figures. The second session has no CAD exchange rate.",
+  "source": "Five synthetic sessions with invented rates and broker figures. The second session has no CAD exchange rate. Its intraday scenario applies an illustrative 2026 rate of USD 125 per contract to two contracts. The closing requirement for that session is unknown.",
   "sessionDates": ["2023-12-22", "2023-12-26", "2023-12-27", "2023-12-28", "2023-12-29"],
   "timeZone": "America/New_York",
   "marginModel": "simple_net",
@@ -7,7 +7,18 @@
   "intradayComplete": true,
   "closeComplete": true,
   "rows": [
-    {"date":"2023-12-28","active":1,"overnight":1,"marginUsd":1600,"marginBasis":"required_equity"}
+    {"date":"2023-12-22","intradayMargin":[
+      {"time":"2023-12-21T18:00:00-05:00","marginUsd":0,"marginBasis":"broker_requirement"},
+      {"time":"2023-12-22T10:15:00-05:00","marginUsd":300,"marginBasis":"broker_requirement"}]},
+    {"date":"2023-12-26","intradayMargin":[
+      {"time":"2023-12-25T18:00:00-05:00","marginUsd":250,"marginBasis":"schedule_scenario",
+       "contributors":[{"strategyId":"trend","symbol":"FUT-A","quantity":2,"marginUsd":250}]},
+      {"time":"2023-12-26T10:00:00-05:00","marginUsd":null,"marginBasis":"schedule_scenario"}]},
+    {"date":"2023-12-28","active":1,"overnight":1,"marginUsd":1600,"marginBasis":"required_equity","overnightScenarioUsd":1800,
+     "activePositions":[{"account":"example","strategyId":"carry","symbol":"STOCK-B","heldDuring":true,"closeQty":10}]},
+    {"date":"2023-12-29","intradayMargin":[
+      {"time":"2023-12-29T09:30:00-05:00","marginUsd":1200,"marginBasis":"broker_requirement"},
+      {"time":"2023-12-29T15:50:00-05:00","marginUsd":0,"marginBasis":"broker_requirement"}]}
   ],
   "positions": [
     {"date":"2023-12-22","account":"example","strategyId":"trend","symbol":"FUT-A","closeQty":2},

@@ -91,7 +91,7 @@ class InputTests(unittest.TestCase):
         index = dict(source, mode="equity", valueColumn="nav", id="b", kind="benchmark", currency="INDEX")
         config = {"series": [returns, additive, index]}
         report = self.load(config)
-        self.assertEqual(report["title"], "Performance Atlas")
+        self.assertEqual(report["title"], "Performance Atlas Dashboard")
         a, p, b = report["series"]
         self.assertEqual(a["equity"], [100, 150, 75])
         self.assertEqual(p["equity"], [100, 150, 100])

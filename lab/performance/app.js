@@ -367,9 +367,10 @@
           `<tr><th scope="row">${y}</th>${monthNames
             .map((name, j) => {
               const month = months.get(y + "-" + (j + 1)),
-                v = month?.return;
+                v = month?.return,
+                key = `${y}-${String(j + 1).padStart(2, "0")}`;
               if (!Number.isFinite(v))
-                return '<td aria-label="No observation">·</td>';
+                return `<td data-month="${key}" aria-label="${name} ${y} · No measured return" title="No measured return">—</td>`;
               const color = v < 0 ? "var(--loss)" : "var(--gain)",
                 strength =
                   v === 0
@@ -379,24 +380,27 @@
                 amounts && Number.isFinite(month.amount)
                   ? decimal(month.amount, 2)
                   : null;
+              const magnitude = Math.abs(100 * v);
+              const places = magnitude > 0 && magnitude < 0.005
+                ? Math.min(12, -Math.floor(Math.log10(magnitude))) : 2;
+              const label = pct(v, places, true);
+              const coverage = month.coverage === "gap" ? "Missing observations inside the period"
+                : month.coverage === "partial" ? "Partial month" : "Full month";
+              const mark = month.coverage === "gap" ? "‡" : month.coverage === "partial" ? "†" : "";
               const title = escape(
-                `${name} ${y} · ${pct(v, 2, true)}` +
-                  (amount === null ? "" : ` · ${amount} ${amounts.unit}`),
+                `${name} ${y} · ${label}` +
+                  (amount === null ? "" : ` · ${amount} ${amounts.unit}`) +
+                  ` · ${coverage} · ${iso(month.openingTime)} to ${iso(month.closingTime)}`,
               );
-              const label = compact
-                ? v === 0
-                  ? "0"
-                  : v < 0
-                    ? "−"
-                    : "+"
-                : pct(v, 1);
-              return `<td data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))">${label}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
+              return `<td data-month="${key}" data-return="${v}" data-coverage="${month.coverage}" data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))"><span class="heat-value">${label}</span>${mark ? `<sup>${mark}</sup>` : ""}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
             })
             .join("")}</tr>`,
       )
       .join("");
-    const layout = amounts ? ' style="table-layout:auto"' : "";
-    return `<div class="heat-wrap"><table class="heat"${layout}><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col" title="${m}">${compact ? m[0] : m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
+    const shown = a.months.filter((m) => years.includes(m.year) && Number.isFinite(m.return));
+    const notes = [shown.some((m) => m.coverage === "partial") ? "† Partial month" : "",
+      shown.some((m) => m.coverage === "gap") ? "‡ Missing observations" : ""].filter(Boolean).join(" · ");
+    return `<div class="heat-wrap" role="region" aria-label="Monthly returns by year" tabindex="0"><table class="heat" data-monthly-returns aria-label="Monthly returns in percent"><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col">${m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span class="coverage-key">${notes}</span><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
   }
   function profile(a, s) {
     const m = a.summary,
@@ -461,7 +465,7 @@
       `</div>`
     );
   }
-  function distribution(bins, id, formatter, negativeColors = false) {
+  function distribution(bins, id, formatter, negativeColors = false, options = {}) {
     barPlot(
       id,
       bins.map((b, i) => ({
@@ -475,14 +479,14 @@
             : "var(--gain)"
           : "var(--brand)",
       })),
-      { title: "Distribution", height: 191, format: count, labelWidth: 63 },
+      { title: "Distribution", height: 191, format: count, labelWidth: 63, ...options },
     );
     return chart(id);
   }
   function overview(s, a) {
     return (
       kpis(s, a) +
-      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Calendar-month performance at a glance.", heatmap(a, true), linkView("calendar", "Explore"))}</div>` +
+      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two calendar-preview">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Monthly change in equity. Up to four recent years.", heatmap(a, true), linkView("calendar", "All months"))}</div>` +
       profile(a, s)
     );
   }
@@ -520,13 +524,38 @@
   function drawdownView(s, a) {
     const m = a.summary;
     const episodes = [...a.episodes].sort((x, y) => x.depth - y.depth);
-    const rows = episodes.map((e) => [
-      date(e.peak),
-      date(e.trough),
-      Number.isFinite(e.recovery) ? date(e.recovery) : "Open",
-      signedCell(e.depth),
-      count(e.days),
-    ]);
+    const pageSize = 10;
+    const episodeTable = (start) => table(
+      ["Peak", "Trough", "Recovery", "Depth", "Days"],
+      episodes.slice(start, start + pageSize).map((e) => [
+        date(e.peak), date(e.trough),
+        Number.isFinite(e.recovery) ? date(e.recovery) : "Open",
+        signedCell(e.depth), count(e.days),
+      ]),
+    );
+    let history = episodes.length ? episodeTable(0) : empty(
+      "No drawdown episodes", "Selected marks show no decline from a previous high.",
+    );
+    if (episodes.length > pageSize) {
+      const pageCount = (start) =>
+        `${start + 1}–${Math.min(start + pageSize, episodes.length)} of ${count(episodes.length)} episodes`;
+      history = `<div id="episode-rows">${history}</div><div class="score-nav"><span id="episode-count" aria-live="polite">${pageCount(0)}</span><div>
+        <button type="button" class="small-button" id="episode-prev" aria-label="Previous episodes" disabled>Previous</button>
+        <button type="button" class="small-button" id="episode-next" aria-label="Next episodes">Next</button></div></div>`;
+      let start = 0;
+      plots.push(() => {
+        const prev = $("episode-prev"), next = $("episode-next");
+        function show(offset) {
+          start += offset;
+          $("episode-rows").innerHTML = episodeTable(start);
+          $("episode-count").textContent = pageCount(start);
+          prev.disabled = start === 0;
+          next.disabled = start + pageSize >= episodes.length;
+        }
+        prev.onclick = () => show(-pageSize);
+        next.onclick = () => show(pageSize);
+      });
+    }
     return (
       kpis(s, a) +
       `<div class="grid-hero">${drawdowns(s, a, "dd-full", true)}${panel(
@@ -549,17 +578,12 @@
       `<div class="toolbar">${rollingControl()}</div><div class="grid-two">${rollingPanel(s, a, "maxDrawdown", `Rolling ${state.months}-month drawdown`, "Worst peak-to-trough loss wholly inside each window.", "dd-window")}${panel(
         "Return distribution",
         `${periodUnit(s)} close-to-close returns.`,
-        distribution(a.bins, "risk-distribution", (v) => pct(v, 1), true),
+        distribution(a.bins, "risk-distribution", (v) => pct(v, 1), true, { countScale: "auto" }),
       )}</div>` +
       panel(
         "Drawdown episodes",
         "Deepest first. Duration runs from the peak to recovery or the last selected mark.",
-        rows.length
-          ? table(["Peak", "Trough", "Recovery", "Depth", "Days"], rows)
-          : empty(
-              "No drawdown episodes",
-              "Selected marks show no decline from a previous high.",
-            ),
+        history,
         "",
         "standalone",
       )
@@ -687,7 +711,7 @@
         "Monthly return heatmap",
         "The first line shows the observed monthly return. " +
           amountNote +
-          " A dot marks missing data.",
+          " A dash marks a month without a measured return.",
         heatmap(a, false, amounts),
         "",
         "standalone",
@@ -725,12 +749,44 @@
       })
       .join("")}</dl>`;
   };
-  function tradesView(s, a) {
-    const r = D.trades(s, bounds(s));
+  function sourceDates(s) {
+    const h = s.evidence?.sourceHorizon;
+    if (!h || ![h.start, h.end].every(t => Number.isSafeInteger(t) && Math.abs(t) <= 8.64e15)
+        || h.start > h.end) return null;
+    return `${date(h.start)} – ${date(h.end)} UTC`;
+  }
+  function tradesView(s) {
+    const range = bounds(s);
+    const r = D.trades(s, range);
     const unit = s.currency === "INDEX" ? "index points" : s.currency;
     const amount = (v) =>
       Number.isFinite(v) ? decimal(v, 2) + " " + unit : "—";
     const hasLedger = Array.isArray(s.trades);
+    const recorded = s.tradeSummary || {};
+    const sourceCount = [recorded.closedTrades, recorded.count].find(
+      n => Number.isSafeInteger(n) && n >= 0,
+    );
+    const datedCount = hasLedger ? s.trades.length : null;
+    const countConflict = hasLedger && sourceCount !== undefined && datedCount > sourceCount;
+    const partial = s.evidence?.tradeCoverage === "partial" ||
+      (hasLedger && sourceCount !== undefined && datedCount < sourceCount);
+    const uncertain = partial || countConflict;
+    const unknownCount = !hasLedger || uncertain ||
+      (!datedCount && s.evidence?.tradeCoverage !== "complete" && sourceCount !== 0);
+    const selectedDates = `${date(range.start)} – ${date(range.end)} UTC`;
+    const sourcePeriod = sourceDates(s);
+    const fullHistory = "Full source history. " + (sourcePeriod ? sourcePeriod + ". " : "Source dates unspecified. ");
+    const scope = [`Selected dates ${selectedDates}.`];
+    if (partial) scope.push("Partial dated ledger.");
+    if (hasLedger) {
+      if (countConflict) scope.push(`Counts disagree. The ledger has ${count(datedCount)} dated closes. The summary lists ${count(sourceCount)} source closes.`);
+      else if (sourceCount === undefined) scope.push(`${count(datedCount)} dated closes in the displayed history.`);
+      else scope.push(`${count(datedCount)} of ${count(sourceCount)} source closes have dated rows in the displayed history.`);
+      scope.push(`${count(r.count)} supplied closes in the selected dates.`);
+    } else scope.push("The source supplied no dated trade ledger.");
+    if (!r.count && unknownCount) scope.push("Trade count and P&L from dated rows are unknown for this selection.");
+    else if (uncertain) scope.push("Statistics use the supplied closes. Streaks require the full sequence.");
+    const scopeNote = `<p class="${uncertain || !hasLedger ? "notice" : "explain"}">${escape(scope.join(" "))}</p>`;
     const why =
       r.reason || "Supply dated net profit or loss for each closed trade.";
     const fields = [
@@ -751,9 +807,10 @@
       ["Largest winner / gross profit", "largestWinnerShare", pct],
       ["Largest loss / gross loss", "largestLoserShare", pct],
     ];
-    const columns = r.breakdown
-      ? [r.breakdown.all, r.breakdown.long, r.breakdown.short]
-      : [];
+    const unclassified = r.breakdown?.unclassifiedCount || 0;
+    const hasSides = !r.count || unclassified !== r.count;
+    const columnKeys = hasSides ? ["all", "long", "short"] : ["all"];
+    const columns = r.breakdown ? columnKeys.map(key => r.breakdown[key]) : [];
     const tradeRows = fields.map(([label, key, format]) => [
       label,
       ...columns.map((column) => {
@@ -764,16 +821,16 @@
           : display;
       }),
     ]);
-    const unclassified = r.breakdown?.unclassifiedCount || 0;
     const sideNote = unclassified
-      ? ` All includes ${count(unclassified)} ${unclassified === 1 ? "trade" : "trades"} with another or missing side.`
+      ? ` All includes ${count(unclassified)} ${unclassified === 1 ? "trade" : "trades"} with another or missing side.` +
+        (hasSides ? " The side columns count only classified trades." : " No long or short classifications are available.")
       : "";
     const summary = panel(
       "Closed trades by side",
       "Gross profit and gross loss sum the recorded winning and losing net trade outcomes in each column." +
         sideNote,
       r.breakdown
-        ? table(["Measure", "All", "Long", "Short"], tradeRows)
+        ? table(hasSides ? ["Measure", "All", "Long", "Short"] : ["Measure", "All"], tradeRows)
         : empty("Trade ledger unavailable", why),
       "",
       "standalone",
@@ -782,7 +839,7 @@
       "Trade outcomes",
       "Realized profit or loss per closed trade.",
       r.bins.length
-        ? distribution(r.bins, "trade-hist", (v) => decimal(v, 0), true)
+        ? distribution(r.bins, "trade-hist", (v) => decimal(v, 0), true, { countScale: "auto" })
         : empty("Trade distribution unavailable", why),
     );
     const recent = r.outcomes.slice(-120);
@@ -863,8 +920,10 @@
       "reportedCost",
       "commission",
       "commissions",
+      "commission_total",
       "fees",
       "slippage",
+      "slippage_total",
       "spread",
       "borrow",
       "financing",
@@ -899,10 +958,39 @@
         ["Before reported costs", cur(s, net + costs.total, 2)],
       );
     }
+    const summaryAmounts = new Set([
+      "avg_win", "avg_loss", "best_trade", "worst_trade", "expectancy_per_trade",
+      "grossProfit", "grossLoss", "netPnl",
+    ]);
+    const summaryUnit = recorded.currency || recorded.unit || unit;
+    const summaryValues = Object.fromEntries(Object.entries(recorded).map(([key, value]) => {
+      if (Number.isFinite(value)) {
+        if (key === "win_rate" && value >= 0 && value <= 1) value = pct(value);
+        else if (summaryAmounts.has(key)) value = decimal(value, 2) + " " + summaryUnit;
+      }
+      return [key, value];
+    }));
+    const sourcePanels = [];
+    if (Object.keys(recorded).length)
+      sourcePanels.push(panel("Source trade summary", fullHistory + "Date filters apply only to dated trades.",
+        sourceRecords(summaryValues, "source trade summary")));
+    if (costRows.length)
+      sourcePanels.push(panel("Execution costs", fullHistory.trim(), statList(costRows)));
+    const totals = sourcePanels.length === 2
+      ? `<div class="grid-two">${sourcePanels.join("")}</div>` : sourcePanels.join("");
+    const assumptions = panel(
+      "Cost assumptions", "",
+      `<p class="evidence-text">${escape(s.costModel || "The source did not document its cost model.")}</p>`,
+      "", "standalone",
+    );
+    const omissions = [
+      !Object.keys(recorded).length && "The source supplied no full-history trade summary.",
+      !costRows.length && "The source supplied no numeric execution cost breakdown.",
+    ].filter(Boolean).join(" ");
+    const sourceNote = omissions ? `<p class="explain">${escape(omissions)}</p>` : "";
+    if (!r.count && unknownCount) return scopeNote + totals + sourceNote + assumptions;
     return (
-      (s.evidence?.tradeCoverage === "partial"
-        ? `<p class="notice">${escape(r.reason)}</p>`
-        : "") +
+      scopeNote + (uncertain ? totals : "") +
       summary +
       `<div class="grid-two">${chronology}${sizes}</div><div class="grid-two">` +
       panel(
@@ -912,7 +1000,7 @@
           ["Average win / |average loss|", decimal(r.payoff)],
           [
             "Longest winning / losing streak",
-            hasLedger ? count(r.winStreak) + " / " + count(r.lossStreak) : "—",
+            uncertain ? "—" : count(r.winStreak) + " / " + count(r.lossStreak),
           ],
           [
             "Mean holding time",
@@ -924,14 +1012,7 @@
       ) +
       durations +
       "</div>" +
-      `<div class="grid-two">${panel("Execution costs", "Source totals for the full history.", costRows.length ? statList(costRows) : empty("Cost breakdown unavailable", "Supply recorded cost amounts and their currency."))}${panel("Source trade summary", "Full source history. Date filters apply to the dated ledger above.", sourceRecords(s.tradeSummary, "source trade summary"))}</div>` +
-      panel(
-        "Cost assumptions",
-        "",
-        `<p class="evidence-text">${escape(s.costModel || "The source did not document its cost model.")}</p>`,
-        "",
-        "standalone",
-      )
+      (uncertain ? "" : totals) + sourceNote + assumptions
     );
   }
 
@@ -1281,14 +1362,27 @@
   function portfolioDetails(s) {
     if (s.kind !== "portfolio") return "";
     const result = D.attribution(s, all, options(s));
+    const paper = s.evidence?.attribution?.basis === "paper_additive";
     const rows = result.rows.map((v) => [
-      byId.has(v.id)
+      byId.get(v.id)?.kind === "strategy"
         ? `<button class="dir-button" type="button" data-series="${escape(v.id)}">${escape(v.name)}</button>`
         : escape(v.name),
-      signedCell(v.returnContribution),
+      paper ? `<span class="${valClass(v.returnContribution)}">${pct(v.returnContribution, 2, true)}</span>` : signedCell(v.returnContribution),
       pct(v.riskShare, 2, true),
     ]);
-    return `<div class="grid-two">${panel("Construction weights", s.evidence?.holdingsBasis || "Source weight snapshot for the full report.", weightComposition(s))}${panel("Portfolio attribution", "Return contributions add to portfolio growth. Risk shares measure contributions to return variance.", rows.length ? table(["Strategy", "Return contribution", "Risk share"], rows) : empty("Attribution unavailable", result.reason || "Supply reconciled funded sleeve histories."))}</div>`;
+    let description = "Return contributions add to portfolio growth. Risk shares measure contributions to return variance.";
+    if (paper) {
+      description = rows.length
+        ? `Member paper P&L is a percentage of the selected opening equity on ${date(result.openingTime)} UTC. Portfolio return through ${date(result.closingTime)} UTC was ${pct(result.portfolioReturn, 2, true)}.`
+        : "Paper attribution requires dated member P&L that reconciles to portfolio equity.";
+    }
+    if (rows.length && result.reason) description += ` Risk shares unavailable. ${result.reason}`;
+    else if (paper && rows.length) {
+      description += ` Risk shares divide each member’s covariance with portfolio returns by portfolio variance over ${count(result.riskIntervals)} matched intervals.`;
+    }
+    const body = rows.length ? table(["Strategy", "Return contribution", "Risk share"], rows)
+      : empty("Attribution unavailable", result.reason || "Supply reconciled portfolio contribution evidence.");
+    return `<div class="grid-two">${panel("Construction weights", s.evidence?.holdingsBasis || "Source weight snapshot for the full report.", weightComposition(s))}${panel("Portfolio attribution", description, body)}</div>`;
   }
   function peerPanel(s) {
     const peers = all.filter((k) => k.id !== s.id);
@@ -1298,18 +1392,21 @@
         "",
         empty(
           "No comparison series",
-          "Supply a benchmark or another strategy or portfolio.",
+          "No source benchmark assigned. The report contains one series.",
         ),
         "",
         "standalone",
       );
-    const b =
-      byId.get(state.peer) ||
-      byId.get(s.benchmarkId) ||
-      peers.find((k) => k.kind === "benchmark") ||
-      peers[0];
+    const assigned = byId.get(s.benchmarkId);
+    const onlyPeer = peers.length === 1 && peers[0].kind !== "benchmark" ? peers[0] : null;
+    const b = byId.get(state.peer) || assigned || onlyPeer;
     const opts = options(s);
-    const choices = `<div class="toolbar"><label>Comparison series <select class="input-select" id="peer-select">${peers.map((k) => `<option value="${escape(k.id)}" ${activeClass(k.id, b.id)}>${escape(k.name)} · ${kinds[k.kind]}</option>`).join("")}</select></label></div>`;
+    const assignment = assigned ? `Source benchmark is ${assigned.name}.` : "No source benchmark assigned.";
+    const choiceNote = b && b.id !== assigned?.id ? ` The comparison uses ${b.name} as a peer.` : "";
+    const prompt = !assigned && !onlyPeer ? '<option value="">Choose a comparison series</option>' : "";
+    const choices = `<div class="toolbar"><label for="peer-select">Comparison series</label><select class="input-select" id="peer-select">${prompt}${peers.map((k) => `<option value="${escape(k.id)}" ${activeClass(k.id, b?.id)}>${escape(k.name)} · ${kinds[k.kind]}</option>`).join("")}</select></div>
+      <p class="evidence-text">${escape(assignment + choiceNote)}</p>`;
+    if (!b) return choices;
     const pair = overlap(s, b, opts);
     let comparison = empty(
         "No shared opening and closing marks",
@@ -1358,10 +1455,23 @@
     }
     const n = Math.max(2, Math.round((s.periodsPerYear * state.months) / 12));
     const rel = D.benchmark(s, b, { ...opts, rollingWindow: n });
+    if (b.kind === "benchmark") {
+      const basis = [
+        `Benchmark history ${date(b.times[0])} – ${date(b.times.at(-1))} UTC.`,
+        typeof b.evidence?.returnCurrency === "string" && `The source gives ${b.evidence.returnCurrency} as its return currency.`,
+        b.source, ...(b.notes || []),
+      ].filter(Boolean);
+      comparison += `<p class="evidence-text">${escape(basis.join(" "))}</p>`;
+    }
     if (s.currency !== b.currency)
-      comparison += `<p class="chart-caption">Each index uses its source currency (${escape(s.currency)} and ${escape(b.currency)}).</p>`;
+      comparison += `<p class="chart-caption">Display units are ${escape(s.currency)} for the selected series and ${escape(b.currency)} for the comparison.</p>`;
+    if ([s, b].some(k => k.evidence?.markTimeBasis === "date_label"))
+      comparison += '<p class="chart-caption">At least one series uses source date labels. Exact observation times are unknown for those marks.</p>';
     const stats = statList([
       ["Matched return intervals", count(rel.count)],
+      ["Matched interval dates (UTC)", rel.count
+        ? date(rel.coverage.start) + " – " + date(rel.coverage.end) : "—"],
+      ...(rel.coverage.segments > 1 ? [["Separate matched periods", count(rel.coverage.segments)]] : []),
       [
         "Selected / reference coverage",
         pct(rel.coverage.seriesFraction, 0) +
@@ -1423,8 +1533,9 @@
     cache: new Map(),
     window: null,
   };
-  function scorecardPanel() {
+  function scorecardPanel(s) {
     if (!all.some((x) => x.kind === "strategy")) return "";
+    const range = bounds(s);
     const controls = `<div class="toolbar score-toolbar"><label>Find strategies <input type="search" id="score-filter" placeholder="Name, family or asset class" value="${escape(score.filter)}"></label><label>Sort by <select class="input-select" id="score-sort">${[
       ["name", "Name"],
       ["cagr", "CAGR"],
@@ -1438,7 +1549,7 @@
       .join("")}</select></label></div>`;
     return panel(
       "Strategy scorecard",
-      "Each row uses the recorded history within the selected dates. Select a name to open its charts.",
+      `All report strategies. Selected closes run from ${date(range.start)} through ${date(range.end)} UTC. Each row shows its actual opening and closing marks. Select a name to open its charts.`,
       controls +
         '<div id="score-rows"></div><div class="score-nav"><span id="score-count"></span><div><button type="button" class="small-button" id="score-prev">Previous</button><button type="button" class="small-button" id="score-next">Next</button></div></div>',
       "",
@@ -1528,37 +1639,35 @@
 
   function compareView(s) {
     return (
-      matrixPanel(s) + peerPanel(s) + scorecardPanel() + portfolioDetails(s)
+      matrixPanel(s) + peerPanel(s) + scorecardPanel(s) + portfolioDetails(s)
     );
   }
   function evidenceView(s, a) {
     const e = s.evidence || {},
       rows = D.evidenceCoverage(s);
-    const coverage = table(
-      ["Data", "Availability", "Scope and input requirements"],
-      rows.map((row) => [
-        escape(row.label || niceKey(row.id)),
-        row.available ? "Recorded" : "Unavailable",
-        escape(
-          row.available
-            ? row.scope === "source"
-              ? "Full source history"
-              : "Dated observations"
-            : (row.missing || []).join(", ") ||
-                row.reason ||
-                "The source did not supply this input.",
-        ),
-      ]),
-    );
-    let maxGap = 0;
-    for (let i = 1; i < a.times.length; i++)
-      maxGap = Math.max(maxGap, a.times[i] - a.times[i - 1]);
+    const disclosure = (title, body) =>
+      `<details><summary>${escape(title)}</summary>${body}</details>`;
+    const coverage = `<dl class="definitions">${rows.map(row => {
+      const scope = row.scope === "source" ? "Full source history" : "Supplied dated observations";
+      const detail = row.available ? scope : (row.missing || []).join(", ") || row.reason;
+      return `<div><dt>${escape(row.label || niceKey(row.id))}</dt><dd>${row.available ? "Recorded" : "Unavailable"}. ${escape(detail)}</dd></div>`;
+    }).join("")}</dl>`;
+    const range = bounds(s), sourcePeriod = sourceDates(s);
+    let maxGap = null, previous = a.meta.baselineTime;
+    for (const t of a.times) {
+      if (Number.isFinite(previous) && t > previous) maxGap = Math.max(maxGap ?? 0, t - previous);
+      previous = t;
+    }
     const seen = Object.entries(e).filter(
-      ([k]) => !["results", "holdingsBasis", "attribution"].includes(k),
+      ([k]) => !["results", "holdingsBasis", "attribution"].includes(k) && !(k === "sourceHorizon" && sourcePeriod),
     );
-    const sourceData = seen.length
-      ? sourceRecords(Object.fromEntries(seen), "research evidence")
-      : "";
+    const statisticCount = Object.keys(s.sourceMetrics || {}).length;
+    const sourceFields = seen.length
+      ? disclosure(`Show ${count(seen.length)} source fields`, sourceRecords(Object.fromEntries(seen), "research evidence"))
+      : "No additional fields supplied.";
+    const sourceStatistics = statisticCount
+      ? disclosure(`Show ${count(statisticCount)} source statistics`, sourceRecords(s.sourceMetrics, "source statistics"))
+      : "No statistics supplied.";
     const families = {
       winner_removal: "Remove winning trades",
       random_removal: "Random trade removal",
@@ -1573,18 +1682,26 @@
     };
     let records = e.results;
     if (!Array.isArray(records))
-      records = Object.entries(records || {}).flatMap(([family, res]) =>
-        (Array.isArray(res) ? res : [res]).map((v) => ({ ...v, family })),
-      );
-    const tests = Object.entries(families).flatMap(([id, label]) => {
-      const results = records.filter((r) => r && r.family === id);
-      if (!results.length) return [[label, "No result supplied", "—"]];
-      return results.map((r) => [
-        label,
-        escape(niceKey(r.status || "Unknown")),
-        escape(r.reason || r.description || r.summary || "See source evidence"),
-      ]);
-    });
+      records = Object.entries(records || {}).flatMap(([family, group]) => {
+        const items = group?.results ?? group;
+        return (Array.isArray(items) ? items : [items])
+          .filter(v => v && typeof v === "object" && !Array.isArray(v) && (v.family == null || v.family === family))
+          .map(v => ({ ...v, family }));
+      });
+    records = records.filter(r => r && typeof r === "object" && !Array.isArray(r));
+    const tests = records.map(r => {
+      const family = Object.hasOwn(families, r.family) ? families[r.family] : niceKey(r.family || "Research test");
+      const title = r.label || family;
+      const fields = Object.fromEntries(Object.entries(r).filter(([k]) => !["family", "status", "label"].includes(k)));
+      const description = r.label ? `<p class="explain">${escape(family)}</p>` : "";
+      return disclosure(title + " · " + niceKey(r.status || "Status unspecified"),
+        description + (Object.keys(fields).length ? sourceRecords(fields, "source test details") : ""));
+    }).join("");
+    const missingFamilies = Object.entries(families).filter(([id]) => !records.some(r => r.family === id));
+    const missingTests = missingFamilies.length ? disclosure(
+      `${count(missingFamilies.length)} test families without a source result`,
+      `<ul class="evidence-list">${missingFamilies.map(([, label]) => `<li>${escape(label)}</li>`).join("")}</ul>`,
+    ) : "";
     const noteList = s.notes?.length
       ? `<ul class="evidence-list">${s.notes.map((n) => `<li>${escape(n)}</li>`).join("")}</ul>`
       : "";
@@ -1640,7 +1757,9 @@
           ["Currency or unit", s.currency],
           ["Asset class", s.assetClass || "Unspecified"],
           ["Strategy family", s.family || "Unspecified"],
-          ["History", date(s.times[0]) + " – " + date(s.times.at(-1))],
+          ["Displayed equity history (UTC)", date(s.times[0]) + " – " + date(s.times.at(-1))],
+          ["Dates for full-source figures", sourcePeriod || "Source dates unspecified"],
+          ["Source benchmark", byId.get(s.benchmarkId)?.name || "None assigned"],
           ["Evidence status", s.status || "Unspecified"],
         ]) +
           `<p class="explain">${escape(s.source || "Source identity was not supplied.")}</p>${noteList}`,
@@ -1648,6 +1767,9 @@
         "Measurement basis",
         "Selected analysis window.",
         statList([
+          ["Selected dates (UTC)", date(range.start) + " – " + date(range.end)],
+          ["Opening equity mark (UTC)", date(a.meta.baselineTime)],
+          ["Last selected mark (UTC)", date(a.times.at(-1))],
           ["Equity marks", count(a.times.length)],
           ["Valid return observations", count(a.meta.validReturns)],
           ["Missing intervals", count(a.meta.gaps.length)],
@@ -1655,7 +1777,7 @@
             "Possible holiday intervals",
             count(a.meta.possibleHolidayIntervals),
           ],
-          ["Largest mark gap", decimal(maxGap / DAY, 1) + " days"],
+          ["Largest mark gap", maxGap === null ? "—" : decimal(maxGap / DAY, 1) + " days"],
           ["Return sampling", periodText(s)],
           ["Annual risk-free rate", pct(state.riskFree, 2)],
           ["Annual downside target", pct(state.target, 2)],
@@ -1670,38 +1792,33 @@
           `<p class="explain">${escape(s.accounting || "The source did not describe its accounting basis.")}</p><p class="evidence-text">${escape(s.costModel || "The source did not describe its cost model.")}</p>`,
       )}</div>` +
       panel(
-        "Data coverage",
-        "Missing observations and optional inputs stay visible.",
-        coverage,
+        "Research tests",
+        records.length ? "Open a source record to read its findings and settings." : "The source supplied no test records.",
+        tests + missingTests,
         "",
         "standalone",
       ) +
       panel(
-        "Research tests",
-        "Reported test status comes from the source record.",
-        table(["Test family", "Status", "Source finding"], tests),
+        "Data coverage",
+        `${count(rows.filter(row => row.available).length)} of ${count(rows.length)} input groups have the required source records.`,
+        disclosure("Availability and input requirements", coverage),
         "",
         "standalone",
       ) +
-      (seen.length || s.sourceMetrics
-        ? `<div class="grid-two">${panel("Research evidence", "Full source history.", sourceData || empty("Research evidence unavailable", "Supply run settings, source identities and test records."))}${panel("Source statistics", "The source may use a different return or annualization convention.", sourceRecords(s.sourceMetrics, "source statistics"))}</div>`
+      (seen.length || statisticCount
+        ? `<div class="grid-two">${panel("Research evidence", "Full source history.", sourceFields)}
+             ${panel("Source statistics", "The source may use a different return or annualization convention.", sourceStatistics)}</div>`
         : "") +
       panel(
-        "Calculation conventions",
+        "Methods",
         "",
-        `<dl class="definitions">${Object.entries(M.conventions)
+        disclosure("Calculation conventions", `<dl class="definitions">${Object.entries(M.conventions)
           .map(
             ([key, value]) =>
               `<div><dt>${escape(niceKey(key))}</dt><dd>${escape(value)}</dd></div>`,
           )
-          .join("")}</dl>`,
-        "",
-        "standalone",
-      ) +
-      panel(
-        "Metric definitions",
-        "",
-        `<dl class="definitions">${methods.map(([k, v]) => `<div><dt>${escape(k)}</dt><dd>${escape(v)}</dd></div>`).join("")}</dl>`,
+          .join("")}</dl>`) +
+        disclosure("Metric definitions", `<dl class="definitions">${methods.map(([k, v]) => `<div><dt>${escape(k)}</dt><dd>${escape(v)}</dd></div>`).join("")}</dl>`),
         "",
         "standalone",
       )
@@ -1769,85 +1886,74 @@
     ];
     return [...observed, ...items];
   }
-  function explorerView(s, a) {
-    const items = explorerItems(s, a),
-      selected = items.find((m) => m.id === state.explore) || items[0];
-    const fmt = (v) =>
-      selected.unit === "%"
-        ? pct(v, 2)
-        : Number.isFinite(v)
-          ? decimal(v, 2) +
-            (selected.unit === "ratio" || selected.unit === "number"
-              ? ""
-              : " " + selected.unit)
-          : "—";
-    const controls = `<div class="toolbar"><label>Measure <select id="explorer-metric" class="input-select">${items.map((m) => `<option value="${escape(m.id)}" ${activeClass(m.id, selected.id)}>${escape(m.name)}</option>`).join("")}</select></label>${rollingControl()}</div>`;
-    const values = selected.values.filter(Number.isFinite);
-    let min = Infinity,
-      max = -Infinity,
-      total = 0;
-    for (const v of values) {
-      min = Math.min(min, v);
-      max = Math.max(max, v);
-      total += v;
+  const explorerTickNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 4 });
+  function explorerCard(metric) {
+    const { name, times, values, unit } = metric;
+    const unitSuffix = unit === "ratio" || unit === "number" ? "" : " " + unit;
+    const fmt = v => unit === "%" ? pct(v, 2) :
+      Number.isFinite(v) ? decimal(v, 2) + unitSuffix : "—";
+    const tick = v => unit === "%" ? explorerTickNumber.format(100 * v) + "%" : explorerTickNumber.format(v);
+    let recorded = 0, last = -1, low = Infinity, high = -Infinity, mean = 0;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (!Number.isFinite(v)) continue;
+      recorded++;
+      last = i;
+      low = Math.min(low, v);
+      high = Math.max(high, v);
+      const delta = v - mean;
+      mean = Number.isFinite(delta)
+        ? mean + delta / recorded
+        : mean * (1 - 1 / recorded) + v / recorded;
     }
     const bins = [];
-    if (values.length) {
-      const n =
-          min === max
-            ? 1
-            : Math.min(30, Math.ceil(Math.log2(values.length) + 1)),
-        step = (max - min) / n;
-      for (let i = 0; i < n; i++)
-        bins.push({
-          lower: min + i * step,
-          upper: i === n - 1 ? max : min + (i + 1) * step,
-          count: 0,
-        });
+    if (recorded && low === high) {
+      bins.push({ lower: low, upper: high, count: recorded });
+    } else if (recorded) {
+      const binCount = 18;
+      const span = high - low;
+      let lower = low;
+      for (let i = 1; i <= binCount; i++) {
+        const fraction = i / binCount;
+        const upper = i === binCount ? high : Number.isFinite(span)
+          ? low + span * fraction : low * (1 - fraction) + high * fraction;
+        bins.push({ lower, upper, count: 0 });
+        lower = upper;
+      }
       for (const v of values) {
-        const bucket =
-          min === max
-            ? 0
-            : Math.max(0, Math.min(n - 1, Math.floor((v - min) / step)));
-        bins[bucket].count++;
+        if (!Number.isFinite(v)) continue;
+        const bin = bins.find(b => v < b.upper) || bins.at(-1);
+        bin.count++;
       }
     }
+    const timeline = "explorer-chart-" + metric.id;
     linePlot(
-      "explorer-chart",
-      [
-        {
-          times: selected.times,
-          values: selected.values,
-          label: selected.name,
-        },
-      ],
-      { title: selected.name, format: fmt, detailFormat: fmt, height: 229 },
+      timeline, [{ times, values, label: name }],
+      { title: name + " over time", format: tick, detailFormat: fmt, height: 158,
+        empty: metric.id.startsWith("rolling-")
+          ? `No defined ${state.months}-month observations in this range.`
+          : "No recorded values in this range." },
     );
-    return (
-      controls +
-      `<div class="grid-hero">${panel(selected.name, selected.description, chart("explorer-chart"))}${panel(
-        "Observation summary",
-        "Selected dates and source units.",
-        statList([
-          ["Latest recorded value", fmt(values.at(-1))],
-          ["Lowest value", fmt(min)],
-          ["Highest value", fmt(max)],
-          [
-            "Mean observation",
-            values.length ? fmt(total / values.length) : "—",
-          ],
-          ["Recorded observations", count(values.length)],
-          ["Missing values", count(selected.values.length - values.length)],
-        ]),
-      )}</div>` +
-      panel(
-        "Distribution of observations",
-        "Count of recorded values in each interval.",
-        distribution(bins, "explorer-distribution", fmt),
-        "",
-        "standalone",
-      )
+    const histogram = distribution(bins, "explorer-distribution-" + metric.id, tick, false, {
+      countScale: "auto", height: 135, title: `${name} distribution (${unit})`, empty: "No recorded values to count.",
+    });
+    const summary = [
+      ["Latest", fmt(values[last])], ["Low", fmt(low)], ["High", fmt(high)],
+      ["Mean", fmt(recorded ? mean : null)], ["Recorded", count(recorded)], ["Missing", count(values.length - recorded)],
+    ];
+    return panel(name, metric.description,
+      `<figure><figcaption>Timeline (${escape(unit)})</figcaption>${chart(timeline)}</figure>
+       <figure><figcaption>Distribution of values (${escape(unit)})</figcaption>${histogram}</figure>
+       <dl class="explorer-summary">${summary.map(([label, value]) =>
+         `<div><dt>${label}</dt><dd>${escape(value)}${label === "Latest" && last >= 0 ? `<small>${date(times[last])} UTC</small>` : ""}</dd></div>`,
+       ).join("")}</dl>`,
+      "", "explorer-card",
     );
+  }
+  function explorerView(s, a) {
+    const range = bounds(s);
+    return `<div class="toolbar">${rollingControl()}<span>Rolling measures share this window. Selected dates ${date(range.start)} – ${date(range.end)} UTC.</span></div>
+      <div id="explorer-grid">${explorerItems(s, a).map(explorerCard).join("")}</div>`;
   }
 
   const usd = (v) =>
@@ -1856,6 +1962,7 @@
     broker_requirement: ["Broker overnight margin", "var(--margin)", ""],
     required_equity: ["Broker required equity", "var(--gold)", ""],
     schedule_estimate: ["Modeled overnight margin", "var(--margin)", "5 3"],
+    schedule_scenario: ["Overnight margin scenario", "var(--margin)", "2 4"],
   };
   function marginKind(basis) {
     return (
@@ -1865,6 +1972,37 @@
         "",
       ]
     );
+  }
+  function intradayKind(basis) {
+    const names = { broker_requirement: "Intraday broker margin", required_equity: "Intraday required equity",
+      schedule_estimate: "Modeled intraday margin", schedule_scenario: "Intraday margin scenario" };
+    const colors = { broker_requirement: "var(--intraday)", required_equity: "var(--gold)",
+      schedule_estimate: "var(--intraday)", schedule_scenario: "var(--intraday)" };
+    return [names[basis] || "Intraday margin", colors[basis] || "var(--intraday)",
+      basis === "schedule_scenario" ? "2 3" : basis === "schedule_estimate" ? "6 3" : ""];
+  }
+  function closingScenario(row) {
+    return row.overnightScenarioUsd ?? (row.marginBasis === "schedule_scenario" ? row.marginUsd : null);
+  }
+  function activityPositions(row) {
+    const positions = row.activePositions;
+    if (!Array.isArray(positions)) return '<p class="chart-caption">The source supplies no strategy and contract breakdown for this session.</p>';
+    if (!positions.length) return '<p class="chart-caption">The session ledger lists no active positions.</p>';
+    const records = [...positions].sort((a, b) => (b.marginUsd ?? -1) - (a.marginUsd ?? -1));
+    return table(["Strategy", "Contract / instrument", "Account", "Active during session", "Close quantity", "Attributed USD", "Basis"],
+      records.map((p) => [byId.get(p.strategyId)?.name || p.strategyId, p.symbol, p.account || "—",
+        p.heldDuring == null ? "—" : p.heldDuring ? "Yes" : "No",
+        Number.isFinite(p.closeQty) ? decimal(p.closeQty, Math.abs(p.closeQty) < 1 && p.closeQty ? 5 : 2) : "—",
+        Number.isFinite(p.marginUsd) ? usd(p.marginUsd) : "—",
+        Number.isFinite(p.marginUsd) ? marginKind(p.marginBasis)[0] : "—"].map(escape)));
+  }
+  function pointContributors(point) {
+    if (!point?.contributors?.length) return "";
+    const records = [...point.contributors].sort((a, b) => b.marginUsd - a.marginUsd);
+    return '<h3 class="activity-detail-title">Contributors at the selected time</h3>' +
+      table(["Strategy", "Contract / instrument", "Quantity at this time", "Attributed USD"],
+        records.map((p) => [byId.get(p.strategyId)?.name || p.strategyId, p.symbol,
+          decimal(p.quantity, 4), usd(p.marginUsd)].map(escape)));
   }
   // Each record uses the trading date assigned by the source, including overnight sessions.
   function sessionRange(s) {
@@ -1927,8 +2065,9 @@
         ),
       );
     }
-    const bases = new Set();
+    const bases = new Set(), intradayBases = new Set();
     const peaks = new Map();
+    let intradaySessions = 0, scenarioCloses = 0, peakScenario = null;
     let peakActive = null,
       peakOvernight = null,
       peakLoad = null,
@@ -1946,6 +2085,15 @@
       }
     }
     for (const r of rows) {
+      const samples = (r.intradayMargin || []).filter((p) => Number.isFinite(p.marginUsd));
+      if (samples.length) intradaySessions++;
+      for (const p of samples) intradayBases.add(p.marginBasis);
+      const scenario = closingScenario(r);
+      if (Number.isFinite(scenario)) {
+        scenarioCloses++;
+        bases.add("schedule_scenario");
+        if (!peakScenario || scenario > peakScenario.amount) peakScenario = {amount: scenario, date: r.date};
+      }
       if (Number.isFinite(r.active)) {
         countKnown++;
         if (r.active > 0) invested++;
@@ -1954,6 +2102,7 @@
       if (Number.isFinite(r.overnight))
         peakOvernight = Math.max(peakOvernight ?? 0, r.overnight);
       if (!Number.isFinite(r.marginUsd)) continue;
+      if (r.marginBasis === "schedule_scenario") continue;
       amountKnown++;
       bases.add(r.marginBasis);
       if (r.marginUsd > (peaks.get(r.marginBasis)?.marginUsd ?? -1))
@@ -1961,12 +2110,12 @@
       const close =
         typeof r.closeTime === "string" ? Date.parse(r.closeTime) : r.closeTime;
       const equity = close == null ? dailyNav.get(r.date) : navAt.get(close);
-      if (r.marginBasis !== "required_equity" && equity > 0)
+      if (!["required_equity", "schedule_scenario"].includes(r.marginBasis) && equity > 0)
         peakLoad = Math.max(peakLoad ?? 0, r.marginUsd / equity);
     }
     const byDate = new Map(rows.map((r, i) => [r.date, i]));
     let selectedDate = rows.at(-1).date;
-    function showDay(day) {
+    function showDay(day, point = null) {
       selectedDate = day;
       const input = $("activity-day");
       if (input.value !== day) input.value = day;
@@ -1984,8 +2133,25 @@
       let details = statList([
         ["Active during session", count(row.active)],
         ["Held overnight", count(row.overnight)],
-        [marginKind(row.marginBasis)[0], usd(row.marginUsd)],
+        [row.marginBasis === "schedule_scenario" ? "Historical overnight requirement" : marginKind(row.marginBasis)[0],
+          usd(row.marginBasis === "schedule_scenario" ? null : row.marginUsd)],
+        ...(Number.isFinite(closingScenario(row)) ? [["Overnight margin scenario", usd(closingScenario(row))]] : []),
       ]);
+      const samples = row.intradayMargin || [];
+      if (point && Number.isFinite(point.time)) {
+        const label = (point.kind === "intraday" ? intradayKind : marginKind)(point.marginBasis)[0];
+        details += statList([[label + " · " + new Date(point.time).toISOString(),
+          usd(point.marginUsd)]]);
+      }
+      details += pointContributors(point) +
+        (point?.contributors?.length && s.activity.metadata?.intradayContributors
+          ? '<p class="chart-caption">' + escape(s.activity.metadata.intradayContributors) + '</p>' : '') +
+        '<h3 class="activity-detail-title">Active strategies and contracts</h3>' + activityPositions(row);
+      if (samples.length) {
+        details += '<details class="session-samples"><summary>Intraday observations (' + count(samples.length) + ')</summary>' +
+          table(["Timestamp (UTC)", "Basis", "USD"],
+            samples.map((sample) => [new Date(sample.time).toISOString(), intradayKind(sample.marginBasis)[0], usd(sample.marginUsd)].map(escape))) + '</details>';
+      }
       const gaps = [...new Set(Object.values(row.gaps || {}))];
       if (gaps.length)
         details +=
@@ -2036,11 +2202,11 @@
       $("activity-reading").innerHTML = details;
     }
     function describe(r) {
-      if (r.date !== selectedDate) showDay(r.date);
       const lines = [
         "Active during session  " + (r.active ?? "Not recorded"),
         "Held overnight  " + (r.overnight ?? "Not recorded"),
-        marginKind(r.marginBasis)[0] + "  " + usd(r.marginUsd),
+        ...(r.marginBasis !== "schedule_scenario" ? [marginKind(r.marginBasis)[0] + "  " + usd(r.marginUsd)] : []),
+        ...(Number.isFinite(closingScenario(r)) ? ["Overnight margin scenario  " + usd(closingScenario(r))] : []),
       ];
       if (r.gaps) lines.push(...new Set(Object.values(r.gaps)));
       return lines;
@@ -2050,6 +2216,14 @@
         range: sessionRange(s),
         color: (key) => marginKind(key)[1],
         dash: (key) => marginKind(key)[2],
+        intradayColor: (key) => intradayKind(key)[1],
+        intradayDash: (key) => intradayKind(key)[2],
+        intradayLabel: (key) => intradayKind(key)[0],
+        select: (row, point) => showDay(row.date, point),
+        onZoom: ({from, to}) => {
+          const fmt = (t) => to - from > 2 * DAY ? iso(t) : new Date(t).toISOString().slice(0, 16).replace("T", " ");
+          $("activity-zoom-range").textContent = fmt(from) + " – " + fmt(to) + " UTC";
+        },
         describe,
       });
       function pick(day) {
@@ -2069,6 +2243,10 @@
       };
       $("activity-prev").onclick = () => seek(-1);
       $("activity-next").onclick = () => seek(1);
+      $("activity-zoom-in").onclick = () => cursor.zoomBy(2);
+      $("activity-zoom-out").onclick = () => cursor.zoomBy(0.5);
+      $("activity-zoom-day").onclick = () => cursor.zoomToSession(selectedDate);
+      $("activity-zoom-reset").onclick = () => cursor.resetZoom();
       showDay(selectedDate);
     });
     const keys = [
@@ -2076,6 +2254,7 @@
       ["Held overnight", "var(--overnight)", true],
     ];
     for (const basis of bases) keys.push(marginKind(basis));
+    for (const basis of intradayBases) keys.push(intradayKind(basis));
     const summary = [
       [
         "Trading activity",
@@ -2089,6 +2268,7 @@
         "Peak " + marginKind(basis)[0].toLowerCase(),
         usd(r.marginUsd) + " · " + r.date,
       ]),
+      ...(peakScenario ? [["Peak overnight margin scenario", usd(peakScenario.amount) + " · " + peakScenario.date]] : []),
       ["Peak margin load", pct(peakLoad, 1)],
     ];
     const source = [
@@ -2098,9 +2278,11 @@
         count(countKnown) + " / " + count(rows.length),
       ],
       [
-        "USD requirements recorded",
+        "Historical USD requirements recorded or estimated",
         count(amountKnown) + " / " + count(rows.length),
       ],
+      ["Sessions with timestamped intraday margin", count(intradaySessions) + " / " + count(rows.length)],
+      ...(scenarioCloses ? [["Sessions with an overnight schedule scenario", count(scenarioCloses) + " / " + count(rows.length)]] : []),
     ];
     const dateControl =
       '<div class="session-picker"><button id="activity-prev" class="icon-button" aria-label="Previous trading day">‹</button>' +
@@ -2110,14 +2292,24 @@
       rows.at(-1).date +
       '">' +
       '<button id="activity-next" class="icon-button" aria-label="Next trading day">›</button></div>';
+    const methodology = s.activity.metadata || {};
     const chartBody =
       legend(keys) +
       chart("activity-chart") +
-      '<div class="chart-meta"><span>Hover, tap, or use the arrow keys to inspect a trading day.</span></div>';
+      '<div class="chart-meta"><span>Scroll over the chart to zoom. Drag across dates to inspect a region. Click a date to pin its strategies and contracts.</span>' +
+      '<div class="activity-zoom"><button class="small-button" id="activity-zoom-in" aria-label="Zoom in">+</button>' +
+      '<button class="small-button" id="activity-zoom-out" aria-label="Zoom out">−</button>' +
+      '<button class="small-button" id="activity-zoom-day">Selected session</button>' +
+      '<button class="small-button" id="activity-zoom-reset">Reset zoom</button></div></div>' +
+      '<div class="chart-caption" id="activity-zoom-range" role="status"></div>' +
+      (!intradaySessions ? '<p class="chart-caption">Intraday margin is unavailable for these dates. An intraday line requires timestamped USD observations.</p>' : '') +
+      (scenarioCloses || intradayBases.has("schedule_scenario") ?
+        '<p class="chart-caption"><strong>Schedule scenario' + (methodology.schedule_observed ? ' · ' + escape(methodology.schedule_observed) : '') +
+        '.</strong> ' + escape(methodology.intradayBasis || s.activity.description || "The source applies a hypothetical margin schedule to these positions.") + '</p>' : '');
     return (
       panel(
         "Daily strategy activity and overnight margin",
-        "The upper chart counts distinct strategies. The lower chart shows the total US dollars required at the session close.",
+        "The upper chart counts active strategies. The lower chart compares intraday and closing capital requirements in US dollars.",
         chartBody,
         "",
         "standalone",
@@ -2139,6 +2331,8 @@
         "Session coverage",
         s.activity.source,
         statList(source) +
+          [methodology.symbolBasis, methodology.positionQuantityBasis, methodology.sampling].filter(Boolean).map((note) =>
+            '<p class="chart-caption">' + escape(note) + '</p>').join("") +
           '<p class="chart-caption">Counts use the supplied session dates. Missing dates and measurements appear as gaps.</p>',
         "",
         "standalone",
@@ -2262,7 +2456,7 @@
         ? '<p class="notice">Modeled capital reached zero or less. The analysis stops at the first loss of funding.</p>'
         : "";
     if (state.view === "activity") $view.innerHTML = message + activityView(s);
-    else if (!a.times.length || opts.start > opts.end)
+    else if (opts.start > opts.end || (!a.times.length && state.view !== "explorer"))
       $view.innerHTML = empty(
         "No marks in this date range",
         "Select a date range inside the recorded history.",
@@ -2273,12 +2467,14 @@
     glossary.refresh({ series: s });
     lastWidth = $view.clientWidth;
     $("export").disabled =
-      state.view === "activity" ? !sessionRows(s).length : !a.times.length;
+      state.view === "activity" ? !sessionRows(s).length : state.view === "calendar" ? !a.months.length : !a.times.length;
     $("export").title =
       state.view === "activity"
         ? "Download daily activity and USD requirements as CSV"
+        : state.view === "calendar"
+          ? "Download monthly returns and changes in equity as CSV"
         : state.view === "explorer"
-          ? "Download the selected metric as CSV"
+          ? "Download all displayed measures and units as CSV"
           : "Download the selected equity and drawdown marks as CSV";
   }
   function changeSeries(id) {
@@ -2287,7 +2483,6 @@
     state.id = id;
     if (state.view === "activity" && s.kind !== "portfolio")
       state.view = "overview";
-    state.explore = null;
     lastByKind.set(s.kind, id);
     state.peer = null;
     state.matrixIds = null;
@@ -2299,8 +2494,10 @@
       state.range = "All";
   }
   function navigate(view) {
-    if (!views[view]) return;
+    if (!Object.hasOwn(views, view)) return;
+    if (view === "activity" && byId.get(state.id).kind !== "portfolio") view = "overview";
     state.view = view;
+    if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
     showSidebar(false);
     render();
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -2323,13 +2520,12 @@
   function exportData() {
     const s = byId.get(state.id),
       a = analyze(s);
-    const metric =
-      state.view === "explorer"
-        ? explorerItems(s, a).find((m) => m.id === state.explore) ||
-          explorerItems(s, a)[0]
-        : null;
+    const measures = state.view === "explorer" ? explorerItems(s, a) : null;
     const sessions = state.view === "activity" ? sessionRows(s) : null;
-    const rows = sessions
+    const months = state.view === "calendar" ? D.monthlyAmounts(s, a) : null;
+    const rows = months
+      ? [["month", "return_pct", "equity_change", "unit", "coverage", "opening_utc", "closing_utc"]]
+      : sessions
       ? [
           [
             "session_date",
@@ -2337,26 +2533,40 @@
             "held_overnight",
             "overnight_requirement_usd",
             "requirement_basis",
+            "overnight_scenario_usd",
+            "intraday_observations",
           ],
         ]
-      : metric
-        ? [["timestamp_utc", "value"]]
+      : measures
+        ? [["measure_id", "measure", "timestamp_utc", "value", "unit", "window_months"]]
         : [["timestamp_utc", "equity", "drawdown", "maximum_drawdown_to_date"]];
-    if (sessions) {
+    if (months) {
+      for (const m of months.months) {
+        const month = `${m.year}-${String(m.month).padStart(2, "0")}`;
+        rows.push([month, Number.isFinite(m.return) ? 100 * m.return : "", m.amount ?? "", months.unit,
+          m.coverage, Number.isFinite(m.openingTime) ? new Date(m.openingTime).toISOString() : "",
+          new Date(m.closingTime).toISOString()]);
+      }
+    } else if (sessions) {
       for (const r of sessions)
         rows.push([
           r.date,
           r.active ?? "",
           r.overnight ?? "",
-          r.marginUsd ?? "",
+          r.marginBasis === "schedule_scenario" ? "" : r.marginUsd ?? "",
           r.marginBasis ?? "",
+          closingScenario(r) ?? "",
+          (r.intradayMargin || []).filter((p) => Number.isFinite(p.marginUsd)).length,
         ]);
-    } else if (metric) {
-      for (let i = 0; i < metric.times.length; i++)
-        rows.push([
-          new Date(metric.times[i]).toISOString(),
-          metric.values[i] ?? "",
-        ]);
+    } else if (measures) {
+      for (const measure of measures) {
+        const windowMonths = measure.id.startsWith("rolling-") ? state.months : "";
+        for (let i = 0; i < measure.times.length; i++) {
+          const v = measure.values[i];
+          const value = Number.isFinite(v) ? (measure.unit === "%" ? 100 * v : v) : "";
+          rows.push([measure.id, measure.name, new Date(measure.times[i]).toISOString(), value, measure.unit, windowMonths]);
+        }
+      }
     } else {
       for (let i = 0; i < a.times.length; i++)
         rows.push([
@@ -2366,8 +2576,12 @@
           a.maxDrawdownPath[i],
         ]);
     }
+    const csvField = (value) => {
+      const field = String(value);
+      return /[",\r\n]/.test(field) ? '"' + field.replaceAll('"', '""') + '"' : field;
+    };
     const blob = new Blob(
-      [rows.map((row) => row.join(",")).join("\r\n") + "\r\n"],
+      [rows.map((row) => row.map(csvField).join(",")).join("\r\n") + "\r\n"],
       { type: "text/csv;charset=utf-8" },
     );
     const url = URL.createObjectURL(blob),
@@ -2375,7 +2589,7 @@
     link.href = url;
     link.download =
       (s.id.replace(/[^a-zA-Z0-9_-]+/g, "-") || "series") +
-      (sessions ? "-activity" : metric ? "-" + metric.id : "") +
+      (months ? "-monthly" : sessions ? "-activity" : measures ? "-measures" : "") +
       "-" +
       (sessions ? sessions[0].date : iso(a.times[0])) +
       "-" +
@@ -2471,10 +2685,7 @@
       return;
     }
     const el = event.target;
-    if (el.id === "explorer-metric") {
-      state.explore = el.value;
-      render();
-    } else if (el.id === "rolling-window") {
+    if (el.id === "rolling-window") {
       state.months = Number(el.value);
       render();
     } else if (el.id === "peer-select") {
@@ -2543,5 +2754,11 @@
   const glossary = window.PerformanceGlossary.mount({ report: doc });
   wireChrome();
   syncNavAccess();
-  render();
+  const linkedView = location.hash.slice(1);
+  if (Object.hasOwn(views, linkedView)) navigate(linkedView);
+  else render();
+  window.addEventListener("hashchange", () => {
+    const target = location.hash.slice(1);
+    if (Object.hasOwn(views, target) && target !== state.view) navigate(target);
+  });
 })();

@@ -1,9 +1,11 @@
 ---
 name: portfolio-manager
-description: Act as the desk's Portfolio Manager and write the PM's reports as LaTeX PDFs, computed by lab/book_report.py. Two reports - the candidate review (an existing book in vault/4 Book/Book.md plus one tested strategy: should it enter, at which weight, should the current weights change) and the book construction (no book yet, a set of strategies: how they do together against each alone, which ones earn a place, the book to propose); both read correlations over time, hidden market exposures and stress episodes. Use whenever the user asks to add a strategy to the book, review a candidate, build or create a portfolio or a book from strategies, combine strategies, see what a strategy brings, decide an entry, or run the monthly portfolio slot, even if they do not say "report".
+description: "Review a candidate for a systematic portfolio or construct a book from saved strategies. Use for weights, diversification, exposures, portfolio stress, book reviews, LaTeX research notes and interactive HTML portfolio reports."
 ---
 
 # Portfolio Manager
+
+For an interactive book report, open both the portfolio and its component strategies in Performance Atlas. Use the [HTML reporting guide](../../../docs/performance.md). Check each series against its own saved equity using the [visible monthly-return check](../../../docs/report-coverage.md#verify-the-monthly-returns-a-reader-sees). Identify the dates and units of positions, costs and margin before describing them as account measurements.
 
 The question is never "is this strategy good" (the Analyst answered it) but "is the book better with it, and at which weight". The book is `vault/4 Book/Book.md`. You do the reading; `lab/book_report.py` does every number and figure, so two candidates reviewed a month apart are judged the same way.
 

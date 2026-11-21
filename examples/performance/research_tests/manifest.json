@@ -2,7 +2,7 @@
   "schema": "performance-evidence-v1",
   "report_title": "Multi-asset research",
   "baseline": {
-    "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)",
+    "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)",
     "status": "computed_from_synthetic_marks",
     "settings": {
       "series_id": "multi-asset",
@@ -15,7 +15,7 @@
       "end_utc_ms": 1767214800000,
       "accounting": "Total net equity of four separately funded USD sleeves. Each sleeve retains its P&L.",
       "scope": "Full selected account history",
-      "version": "sha256:60986a7f050972ab76b029e715ab5e16a1357326120445ea9a637826308dff47",
+      "version": "sha256:e4ebd61efc7307e5e30e274c0bc0aa7936f08f235d6249b7d18a0e65dd170987",
       "rules": "lab/performance/demo.py, demo_bundle and Sleeve.close_mark",
       "execution": "The generator marks prior positions at each simulated weekday close. New positions earn the next price change.",
       "splits": "One illustrative window. The generator reserves no unseen period."
@@ -372,7 +372,7 @@
     "The elapsed account window and the count of valid return intervals measure different things."
   ],
   "identity": {
-    "strategy_name": "Multi-Asset Portfolio (sha256:60986a7f050972ab76b029e715ab5e16a1357326120445ea9a637826308dff47)",
+    "strategy_name": "Multi-Asset Portfolio (sha256:e4ebd61efc7307e5e30e274c0bc0aa7936f08f235d6249b7d18a0e65dd170987)",
     "instrument": "Equity Trend, Defensive Duration, Commodity Reversion, Currency Carry",
     "window_start": "2018-12-31",
     "window_end": "2025-12-31",
@@ -393,25 +393,25 @@
       {
         "role": "standalone report",
         "file": "report.html",
-        "sha256": "95428f7dabd3ed0f11f70ae873b6a09be2607f04859f708c0e4e816b7173063d"
+        "sha256": "b3c43171584f1e7dcffa32b707002d98547544d19286e814644874a1119cabd5"
       },
       {
         "role": "canonical embedded JSON",
         "selector": "#report-data",
-        "sha256": "b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445"
+        "sha256": "613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4"
       }
     ],
     "code_version": {
       "theme.js": "621af9ee06d7f82fc2647e1677c6cf27923bb12258fb9b5df23dbc41e78d67fd",
-      "metrics.js": "eed02fa320ededa23a562b790023ec282c549f50b056bf7081750d5e93788e30",
-      "details.js": "c658071fc8e582ed6a4eb025b129083b7b68b51fd9e12b427c3b09d0ee93f2e8",
-      "charts.js": "0bb67269eab1705ef9b1d69f809204d4d983b7e00e5bca216274589252e420f2",
-      "glossary.js": "e64bfeaca1e989cbe62e794f2fa9dde2d63b4246db230b55db6c4aced68cb08e",
-      "app.js": "9d9917889e9fa0caeb97a424611a7df48c22466c0930fc49742c654a1bca0a3b",
-      "evidence.py": "6ad59e69b73aa5795d848b41996bd09a1a7983f7889a0c99ff05196dd020e5a1",
-      "inputs.py": "9fbfe8939fab730fd407645a277a95ea86f25e0680a8382cced168f1aced6761",
-      "activity.py": "8624dc8146ed427172ceda6f9b0dc63a64edc0de1c25d57fd3aabe2f3604a95f",
-      "demo.py": "60986a7f050972ab76b029e715ab5e16a1357326120445ea9a637826308dff47"
+      "metrics.js": "07fdcb053329956c32c6879946df05c19de15c97705400414fb6bc1a1fd0de55",
+      "details.js": "ad2e7494f59a9e684e4ffd2cba2864d9e0d5b10901fbfc5a44691ff7d596a6e3",
+      "charts.js": "275be0aba419ab93bfb3b4563de32dfa5c6553a0a4d2e76eb36f87656bcad281",
+      "glossary.js": "5795c8bdda4288c934f0279cbd76015eb034a258b560f686a68e7177c71256dd",
+      "app.js": "89d6b741e55bf71d5411f1bda14540b7687765a0cdc32ed64f0ce7c36c6f2e37",
+      "evidence.py": "f1fb27e8d716f2daad8da881a1d5bb48eade655fa3d79ac179d59d593f9f046e",
+      "inputs.py": "bf844c90fe157ac1bbc84f0504738cbc344c82c18a00b1630184fbd1ac6c58e1",
+      "activity.py": "0a65b8fa48fbccc2b866b88a503dcce6fec1f350331613fe75cf87769c5122fa",
+      "demo.py": "e4ebd61efc7307e5e30e274c0bc0aa7936f08f235d6249b7d18a0e65dd170987"
     },
     "run_command": "python -m lab.performance --demo --output report.html\npython -m lab.performance.evidence --html report.html --series multi-asset",
     "command_directory": "Report directory with this package on the Python import path."
@@ -9597,6 +9597,7 @@
       "sessions": "For daily sampling, sessionDates lists the expected UTC trading dates. The caller supplies the full calendar for the span. Only listed days produce daily closes. Funding can precede the first session. All supplied marks count for equity and drawdown. A missed scheduled session gives a null interval at the next close.",
       "gaps": "Without a supplied calendar, daily series with at least 360 periods/year require adjacent UTC dates. Other daily series allow weekends and one intervening weekday for a possible holiday. Coarser samples require adjacent calendar buckets. Summary ratios use finite intervals. The gaps list records omitted intervals.",
       "calendar": "Each month and year uses its own observed opening and closing equity. A prior period close can supply opening capital. A partial period with just one unanchored mark has a null return. Full-year means need both boundaries and uninterrupted coverage at the declared frequency. A supplied calendar sets the first and last sessions. Without one, seven-day markets require exact dates. The weekday rule permits one possible holiday. A year ending one weekday early needs subsequent observations through the boundary.",
+      "monthCoverage": "Monthly openingTime and closingTime identify the actual marks. A lone unanchored close has a null openingTime. Coverage is full at both boundaries, partial at a cut or unobserved boundary, and gap when a missing interval affects the month. A gap can still have an observed endpoint return. Months without a return observation have no row.",
       "rolling": "Rolling values are as of each sampled close. Daily windows subtract whole UTC months and clamp the day, retaining the close time. Drawdown uses marks inside the inclusive calendar window. Return uses the last actual valuation at or before the cutoff. A supplied calendar permits a closure of any length if no intervening session was due. Without a calendar, the opening must be within one day (seven-day series) or four days and the bracketing interval must be admissible.",
       "rollingCloses": "Monthly windows open at the last observed close in the month N months earlier, including its actual date and time. Weekly windows open at the last weekly close at or before the clamped cutoff, in its week or the immediately preceding observed week. Both use every raw mark from that opening through the ending close for drawdown and Calmar. openingTimes identifies the actual return opening. Missing boundary buckets stay unavailable. Rolling ratios require complete, gap-free sampled intervals.",
       "drawdown": "Drawdown and episode depth are signed fractions of the running high. Durations are elapsed 24-hour days from the most recent peak to recovery or the last mark. Ulcer is the root mean square of drawdown at displayed marks.",
@@ -13563,12 +13564,17 @@
     }
   },
   "session_activity": {
-    "source": "Simulated positions at each weekday close. The model applies illustrative long/short fractions to closing USD notional. Equities 48%/58%, fixed income 12%/15%, commodities 16%/19%, currencies 5%/7%. Each sleeve holds a separate instrument.",
+    "source": "Simulated positions at each weekday close. The model applies illustrative long/short fractions to closing USD notional. Equities 48%/58%, fixed income 12%/15%, commodities 16%/19%, currencies 5%/7%. Each sleeve holds a separate instrument. Synthetic intraday marks use the previous close at 14:30 UTC and the current price immediately before and after the 21:00 UTC rebalance.",
     "series_field": "activity.rows",
     "session_records": 1828,
     "active_count_observations": 1828,
     "overnight_count_observations": 1828,
     "requirement_observations": 1828,
+    "scenario_observations": 0,
+    "peak_overnight_scenario": null,
+    "intraday_observations_by_basis": {
+      "schedule_estimate": 5482
+    },
     "active_share_of_measured_sessions": 0.9983588621444202,
     "peak_requirement_by_basis": {
       "schedule_estimate": {
@@ -13614,7 +13620,7 @@
       },
       "seed": "Deterministic ranking",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445) /trades",
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4) /trades",
       "metrics": {
         "baseline": {
           "count": 472,
@@ -13665,7 +13671,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "shuffle",
@@ -13674,7 +13680,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "monte_carlo",
@@ -13683,7 +13689,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "parameter_neighbors",
@@ -13692,7 +13698,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "signal_cadence",
@@ -13701,7 +13707,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "price_perturbation",
@@ -13710,7 +13716,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "costs",
@@ -13719,7 +13725,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "other_markets",
@@ -13728,7 +13734,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     },
     {
       "family": "chronology",
@@ -13737,7 +13743,7 @@
       "settings": {},
       "seed": "No test ran in this report.",
       "cost_model": "Commissions and slippage from the four sleeve ledgers.",
-      "source_data": "report-data /series/0 (embedded payload SHA-256 b7241d3913d91c73d537aa38c6051f699ea06602a771f284c0ff86ef41e4d445)"
+      "source_data": "report-data /series/0 (embedded payload SHA-256 613a45b490247920f9c348d0b591ef9837d8708813cd705cd0e86c2d8cf1cea4)"
     }
   ],
   "families": [

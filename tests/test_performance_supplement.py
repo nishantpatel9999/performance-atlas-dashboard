@@ -1,5 +1,6 @@
 """Exercise the supplemental metrics through the offline report's date controls."""
 import calendar
+import csv
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -57,6 +58,27 @@ class SupplementBrowserTests(unittest.TestCase):
 
     def view(self, name):
         self.page.locator(f'[data-view="{name}"]').click()
+
+    def test_monthly_percentages_are_visible_in_both_views_and_exported(self):
+        for view in ("overview", "calendar"):
+            self.view(view)
+            heat = self.page.locator(".heat")
+            self.assertEqual(heat.locator("thead th").all_text_contents()[1:4], ["Jan", "Feb", "Mar"])
+            row = heat.locator("tr").filter(has=self.page.get_by_role("rowheader", name="2023"))
+            self.assertEqual(row.locator("td").nth(0).inner_text().strip(), "—")
+            for index, expected in ((1, "+2.00%"), (2, "-5.88%")):
+                cell = row.locator("td").nth(index)
+                self.assertEqual(cell.inner_text().splitlines()[0], expected)
+                self.assertIn(expected, cell.get_attribute("aria-label"))
+        with self.page.expect_download() as handle:
+            self.page.locator("#export").click()
+        with handle.value.path().open() as stream:
+            exported = {r["month"]: r for r in csv.DictReader(stream)}
+        self.assertIn("-monthly-", handle.value.suggested_filename)
+        self.assertAlmostEqual(float(exported["2023-03"]["return_pct"]), (96 / 102 - 1) * 100)
+        self.assertEqual(float(exported["2023-03"]["equity_change"]), -6)
+        self.assertEqual(exported["2023-03"]["unit"], "USD")
+        self.assertNotIn("2022-12", exported)
 
     def test_profile_and_rolling_denominators(self):
         self.assertTrue(self.page.get_by_text("Gain-to-pain ratio", exact=True).is_visible())

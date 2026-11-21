@@ -1,11 +1,13 @@
 /* Browser: window.PerformanceDetails. CommonJS: require("./details.js").
  * Dates are inclusive UTC epoch milliseconds. Ratios are decimals. Undefined metrics are null.
- * benchmark and correlationMatrix pair sampled returns only when both actual endpoints,
- * currency, frequency and periodsPerYear match. Counts can differ between matrix cells.
+ * benchmark and correlationMatrix require identical interval endpoints, frequency and periodsPerYear.
+ * benchmark uses evidence.returnCurrency for a currency-based index. Both series must use the
+ * same clock: observed timestamps (the default) or explicitly declared date labels.
+ * The matrix requires identical display currencies. Counts can differ between matrix cells.
  * strategyGroups and correlationMatrix accept {ids, portfolio}. IDs set the display order.
  * tails accepts PerformanceMetrics.analyze(series, opts).returns.values and a per-period target.
  * trades uses dated closes. evidenceCoverage describes supplied evidence at its stated scope.
- * attribution requires the portfolio's declared funded members and their original NAV marks.
+ * attribution uses declared funded NAV histories or dated paper P&L fractions of original capital.
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
@@ -384,9 +386,27 @@
     return Array.from(groups, ([family, ids]) => ({ family, ids }));
   }
 
-  function incompatible(a, b) {
+  function benchmarkCurrency(series) {
+    const currency = series.currency, declared = series.evidence?.returnCurrency;
+    if (!suppliedText(currency)) return null;
+    if (declared === undefined) return currency;
+    if (!suppliedText(declared) || declared === "INDEX") return null;
+    return currency === "INDEX" || declared === currency ? declared : null;
+  }
+
+  function incompatible(a, b, benchmarkReturns = false) {
     if (!a || !b) return "Two dated equity series are required.";
-    if (!suppliedText(a.currency) || a.currency !== b.currency) {
+    if (benchmarkReturns) {
+      const currency = benchmarkCurrency(a);
+      if (!currency || currency !== benchmarkCurrency(b)) {
+        return "The series require the same declared return currency. No conversion was supplied.";
+      }
+      const { markTimeBasis: leftClock = "observed_timestamp" } = a.evidence || {};
+      const { markTimeBasis: rightClock = "observed_timestamp" } = b.evidence || {};
+      if (leftClock !== rightClock || !["observed_timestamp", "date_label"].includes(leftClock)) {
+        return "Benchmark intervals require the same clock on both sides: observed timestamps or declared date labels.";
+      }
+    } else if (!suppliedText(a.currency) || a.currency !== b.currency) {
       return "The series require the same declared currency. No conversion was supplied.";
     }
     if (a.frequency !== b.frequency || a.periodsPerYear !== b.periodsPerYear) {
@@ -519,7 +539,7 @@
       seriesFraction: null, benchmarkFraction: null };
     const out = { coverage, count: 0, correlation: null, beta: null, alpha: null, trackingError: null,
       informationRatio: null, upCapture: null, downCapture: null, rolling: { times: [], correlation: [] } };
-    const mismatch = incompatible(series, other);
+    const mismatch = incompatible(series, other, true);
     if (mismatch) return { ...out, reason: mismatch };
     const periods = series.periodsPerYear;
     const width = opts.rollingWindow ?? Math.max(2, Math.round(periods * (opts.months ?? 6) / 12));
@@ -632,7 +652,7 @@
   function fundedMembers(portfolio, allSeries) {
     const evidence = portfolio?.evidence?.attribution;
     if (portfolio?.kind !== "portfolio" || evidence?.basis !== "funded_equity") {
-      return { reason: "The portfolio needs a funded_equity attribution declaration." };
+      return { reason: "The portfolio needs a funded_equity or paper_additive attribution declaration." };
     }
     const ids = evidence.members;
     if (!Array.isArray(ids) || !ids.length || !ids.every(text) || new Set(ids).size !== ids.length) {
@@ -684,11 +704,128 @@
     return numberOrNull(finite(delta) ? delta / portfolioOpen : close / portfolioOpen - open / portfolioOpen);
   }
 
+  function sumRange(values, first = 0, end = values.length) {
+    let sum = 0, correction = 0;
+    for (let i = first; i < end; i++) {
+      const next = sum + values[i];
+      correction += additionRoundoff(sum, values[i], next);
+      sum = next;
+    }
+    return sum + correction;
+  }
+
+  const matchesPaper = (actual, expected, tolerance = 1e-10) =>
+    finite(actual) && finite(expected) && Math.abs(actual - expected) <= tolerance;
+  const paperUnits = new Set(["fraction of opening paper index", "fraction of the opening paper index"]);
+
+  // Column i belongs to the change from raw mark i to i + 1, including the first close.
+  function reconcilePaper(portfolio) {
+    const { paperContributions: panel, attribution: declaration } = portfolio.evidence;
+    if (!object(panel) || !object(panel.byMember) || !Array.isArray(panel.dates)) {
+      return { reason: "Daily paper P&L needs dated contribution columns for each member." };
+    }
+    if (!paperUnits.has(panel.unit) || (declaration.unit != null && !paperUnits.has(declaration.unit))) {
+      return { reason: "Daily paper P&L must use fractions of the original opening paper index." };
+    }
+    const { dates, byMember } = panel, { times, equity } = portfolio;
+    const ids = Object.keys(byMember);
+    if (!ids.length || !ids.every(text) || !ids.every(id => Array.isArray(byMember[id]) && byMember[id].length === dates.length)) {
+      return { reason: "Every paper member needs one contribution for each dated close." };
+    }
+    const declared = declaration.members;
+    if (declared != null && (!object(declared) || Object.keys(declared).length !== ids.length ||
+        !ids.every(id => Object.hasOwn(declared, id)))) {
+      return { reason: "The declared paper members and the daily contribution columns must match." };
+    }
+    if (!Array.isArray(times) || !Array.isArray(equity) || !dates.length || dates.length + 1 !== times.length ||
+        equity.length !== times.length) {
+      return { reason: "Daily paper P&L needs one opening equity mark followed by one dated close per contribution." };
+    }
+    if ((declaration.start != null && declaration.start !== dates[0]) ||
+        (declaration.end != null && declaration.end !== dates.at(-1))) {
+      return { reason: "The declared attribution dates must match the full range of daily paper P&L." };
+    }
+    for (let i = 0; i < dates.length; i++) {
+      const time = times[i + 1];
+      if (!Number.isSafeInteger(time) || Math.abs(time) > 8.64e15 || !(time > times[i]) ||
+          dates[i] !== new Date(time).toISOString().slice(0, 10) || (i && dates[i] <= dates[i - 1])) {
+        return { reason: "Daily paper P&L dates must match the ordered UTC close dates of the portfolio." };
+      }
+      const parts = ids.map(id => byMember[id][i]);
+      if (!parts.every(finite)) return { reason: `A paper member has missing or invalid P&L on ${dates[i]}.` };
+      const change = contribution(equity[i], equity[i + 1], equity[0]);
+      if (!finite(equity[i]) || !finite(equity[i + 1]) || equity[i] <= 0 || !matchesPaper(sumRange(parts), change)) {
+        return { reason: `Daily paper P&L does not reconcile to portfolio equity on ${dates[i]}.` };
+      }
+    }
+    const totals = ids.map(id => sumRange(byMember[id]));
+    if (!matchesPaper(sumRange(totals), contribution(equity[0], equity.at(-1), equity[0]))) {
+      return { reason: "The full range of daily paper P&L does not reconcile to the change in portfolio equity." };
+    }
+    for (let i = 0; i < ids.length; i++) {
+      const reported = declared?.[ids[i]]?.returnContribution;
+      if (reported != null && !matchesPaper(totals[i], reported)) {
+        return { reason: `Daily paper P&L does not reconcile to the full-range contribution for ${ids[i]}.` };
+      }
+    }
+    return { ids, byMember };
+  }
+
+  /** Convert already-sized original-capital fractions to the actual selected opening equity.
+   *  Each sampled risk observation uses its own opening equity and the same endpoints
+   *  as the book return. A skipped return interval still advances the sampler's opening mark. */
+  function paperAttribution(portfolio, allSeries, opts) {
+    const unavailable = reason => ({ rows: [], reason });
+    const source = reconcilePaper(portfolio);
+    if (source.reason) return unavailable(source.reason);
+    const { analysis, reason } = readAnalysis(portfolio, opts);
+    if (reason || !analysis.times.length) return unavailable(reason || "No portfolio equity marks fall in the selected range.");
+
+    const { times, equity } = portfolio, { ids, byMember } = source;
+    const index = new Map(times.map((t, i) => [t, i]));
+    const first = index.get(analysis.meta.baselineTime), last = index.get(analysis.times.at(-1));
+    if (first === last) return unavailable("The selected range contains no closing paper P&L observation.");
+    const names = new Map((allSeries || []).filter(s => s?.kind === "strategy").map(s => [s.id, s.name]));
+    const openingFraction = equity[first] / equity[0];
+    const rows = ids.map(id => ({
+      id, name: names.get(id) || id,
+      returnContribution: ratio(sumRange(byMember[id], first, last), openingFraction), riskShare: null
+    }));
+    if (rows.some(r => r.returnContribution === null) ||
+        !matchesPaper(sumRange(rows.map(r => r.returnContribution)), analysis.summary.totalReturn)) {
+      return unavailable("Paper P&L does not reconcile to the portfolio return from the selected opening equity.");
+    }
+
+    const stats = ids.map(() => moments()), sampled = intervals(analysis);
+    const result = { rows, openingTime: times[first], closingTime: times[last],
+      portfolioReturn: analysis.summary.totalReturn, riskIntervals: sampled.length };
+    for (const r of sampled) {
+      const a = index.get(r.start), b = index.get(r.end);
+      const parts = ids.map(id => ratio(sumRange(byMember[id], a, b), equity[a] / equity[0]));
+      if (parts.includes(null) || !matchesPaper(sumRange(parts), r.value)) {
+        return { ...result, reason: "Member P&L does not reconcile to a sampled portfolio return at its opening equity." };
+      }
+      parts.forEach((value, i) => observe(stats[i], value, r.value));
+    }
+    const shares = stats.map(slope);
+    if (shares.includes(null)) {
+      return { ...result, reason: "At least two usable intervals and variation in portfolio returns are required." };
+    }
+    if (!matchesPaper(sumRange(shares), 1, 1e-8)) {
+      return { ...result, reason: "The measured shares do not reconcile to portfolio variance." };
+    }
+    rows.forEach((r, i) => { r.riskShare = shares[i]; });
+    return result;
+  }
+
   /** A funded sleeve contributes its change in NAV divided by opening portfolio NAV.
    *  Risk share is the slope of its period contributions against the portfolio returns.
    *  Check every raw mark from the actual opening mark through the selected close.
    *  The reconciliation tolerance is 1e-10 times the larger of gross sleeve NAV and absolute book NAV. */
   function attribution(portfolio, allSeries, opts = {}) {
+    if (portfolio?.kind === "portfolio" && portfolio.evidence?.attribution?.basis === "paper_additive") {
+      return paperAttribution(portfolio, allSeries, opts);
+    }
     const unavailable = reason => ({ rows: [], reason });
     const selection = fundedMembers(portfolio, allSeries);
     if (selection.reason) return unavailable(selection.reason);

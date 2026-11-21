@@ -217,7 +217,8 @@ def _validate_series(item, where):
         from .activity import validate_activity
         if item["kind"] != "portfolio":
             raise ValueError(f"{where}.activity requires a portfolio")
-        result["activity"] = validate_activity(item["activity"], times[0], times[-1], times[stop - 1])
+        result["activity"] = validate_activity(item["activity"], times[0], times[-1], times[stop - 1],
+                                               exhausted=equity[stop - 1] <= 0)
     if "notes" in item:
         for note in _array(item["notes"], f"{where}.notes"):
             _text(note, f"{where}.notes", allow_empty=True)
@@ -427,16 +428,20 @@ def _unique_keys(pairs):
     return result
 
 
-def _read_json(path):
-    """Read a portable manifest or activity sidecar without rounding nonzero amounts to zero."""
+def _load_json(stream):
+    """Read source JSON without rounding nonzero amounts to zero."""
     def finite_float(raw):
         value = _number(float(raw), "JSON number")
         if value == 0 and re.search("[1-9]", raw.lower().partition("e")[0]):
             raise ValueError("a nonzero JSON number is too small to represent")
         return value
 
+    return json.load(stream, object_pairs_hook=_unique_keys, parse_float=finite_float)
+
+
+def _read_json(path):
     with path.open(encoding="utf-8-sig") as stream:
-        return json.load(stream, object_pairs_hook=_unique_keys, parse_float=finite_float)
+        return _load_json(stream)
 
 
 def load_config(path, *, output=None):
