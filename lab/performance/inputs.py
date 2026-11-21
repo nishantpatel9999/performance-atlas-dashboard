@@ -22,7 +22,7 @@ from fractions import Fraction
 from pathlib import Path
 
 
-DEFAULT_TITLE = "Performance Atlas"
+DEFAULT_TITLE = "Performance Atlas Dashboard"
 FREQUENCIES = ("daily", "weekly", "monthly", "annual")
 REQUIRED = {"id", "name", "kind", "currency", "periodsPerYear", "frequency", "times", "equity"}
 TEXT = {"assetClass", "family", "accounting", "costModel", "source", "status", "benchmarkId"}

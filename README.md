@@ -1,6 +1,8 @@
-# ai-quant-pod
+# Performance Atlas Dashboard
 
-This fork adds **Performance Atlas**, an interactive report for algorithmic strategies and portfolios. Open the example, switch between Portfolio and Strategy, and choose a series. The same controls work across instrument types, trading frequencies and strategy families.
+**Performance Atlas Dashboard** is the reporting product in this fork of `Quantreo/ai-quant-pod`. The upstream research workflows remain available in the repository. Open the example, switch between Portfolio and Strategy, and choose a series. The same controls work across instrument types, trading frequencies and strategy families.
+
+AI coding assistant: **OpenAI Codex, GPT-6 Luna**.
 
 [Open the standalone example](examples/performance/report.html) · [Reporting guide](docs/performance.md) · [Example input manifest](examples/performance/report.json)
 

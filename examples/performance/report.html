@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Performance Atlas</title>
+    <title>Performance Atlas Dashboard</title>
     <script>
 /* Apply the stored preference before painting the report. */
 (() => {
@@ -2010,7 +2010,7 @@ dialog select {
       </defs>
     </svg>
     <aside id="sidebar" class="rail" aria-label="Report navigation">
-      <a class="brand" href="#overview" aria-label="Performance Atlas overview">
+      <a class="brand" href="#overview" aria-label="Performance Atlas Dashboard overview">
         <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
           <rect x="0" y="0" width="40" height="40" rx="11" fill="#c2dcff" />
           <g
@@ -2167,7 +2167,7 @@ dialog select {
           </div>
         </details>
         <footer>
-          <span>Performance Atlas</span><span id="footer-source"></span>
+          <span>Performance Atlas Dashboard</span><span id="footer-source"></span>
         </footer>
       </main>
     </div>
@@ -7149,9 +7149,9 @@ dialog select {
         .filter(Boolean)
         .join(" · ") || `${all.length} histories`;
     document.title =
-      doc.title === "Performance Atlas"
+      doc.title === "Performance Atlas Dashboard"
         ? doc.title
-        : doc.title + " · Performance Atlas";
+        : doc.title + " · Performance Atlas Dashboard";
   }
   function render() {
     const s = byId.get(state.id),

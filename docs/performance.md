@@ -1,4 +1,4 @@
-# Performance Atlas reporting guide
+# Performance Atlas Dashboard reporting guide
 
 One HTML file holds the data, calculations and charts. It opens from disk and works without a server. Generate a separate file for each dataset you want to share. A recipient can read all embedded records, including trade histories and source metadata. The synthetic example includes a [reproducible evidence manifest](../examples/performance/research_tests/manifest.json).
 

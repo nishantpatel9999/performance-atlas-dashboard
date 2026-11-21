@@ -2181,9 +2181,9 @@
         .filter(Boolean)
         .join(" · ") || `${all.length} histories`;
     document.title =
-      doc.title === "Performance Atlas"
+      doc.title === "Performance Atlas Dashboard"
         ? doc.title
-        : doc.title + " · Performance Atlas";
+        : doc.title + " · Performance Atlas Dashboard";
   }
   function render() {
     const s = byId.get(state.id),
