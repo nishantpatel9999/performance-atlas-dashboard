@@ -931,7 +931,17 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="The PM's reports: review (a candidate against the book) or construct (a book from a set of strategies).")
     ap.add_argument("kind", choices=["review", "construct"])
     ap.add_argument("name", help="review: the candidate; construct: the name of the book to build")
-    ap.add_argument("step", choices=["compute", "build"])
+    ap.add_argument("step", choices=["compute", "build", "html"])
+    ap.add_argument("--output", type=Path, help="construct html: destination for the standalone performance report")
+    ap.add_argument("--currency", help="construct html: declare the common capital currency after any FX conversion")
+    ap.add_argument("--opening-date", help="construct html: UTC source opening mark for imported daily contributions")
+    ap.add_argument("--opening-capital", type=float, help="construct html: capital basis, required for imported contributions")
+    calendars = ap.add_mutually_exclusive_group()
+    calendars.add_argument("--calendar", choices=["weekday", "daily"],
+                           help="html NAV ratios: Monday-Friday (252/year) or every UTC day (365/year). "
+                                "Multiweek weekday-only panels default to weekdays. Native sizing always uses 365.")
+    calendars.add_argument("--session-dates", type=Path, help="html: JSON array of expected ISO dates (252/year), "
+                           "or an object with sessionDates and periodsPerYear")
     ap.add_argument("--returns", help="review: returns file of a candidate made outside the desk (date, net[, gross])")
     ap.add_argument("--family", help="review: family of that candidate")
     ap.add_argument("--book", default=str(BOOK_FILE), help="review: the book file")
@@ -939,7 +949,18 @@ if __name__ == "__main__":
     ap.add_argument("--import", dest="imports", nargs=3, action="append", default=[], metavar=("NAME", "FILE", "FAMILY"),
                     help="construct: a strategy made outside the desk, from its returns file (paper at most)")
     a = ap.parse_args()
-    if a.kind == "review":
+    if a.step == "html":
+        from lab.performance.native import book_bundle, render_native
+        if a.kind != "construct" or a.output is None:
+            ap.error("html requires construct and --output")
+        try:
+            report = book_bundle(a.name, a.strategy, a.imports, currency=a.currency,
+                                 opening_date=a.opening_date, opening_capital=a.opening_capital,
+                                 calendar=a.calendar, session_dates=a.session_dates)
+            print(render_native(report, a.output, imports=a.imports, session_dates=a.session_dates))
+        except (ValueError, OSError) as exc:
+            ap.error(str(exc))
+    elif a.kind == "review":
         compute(a.name, a.returns, a.family, Path(a.book)) if a.step == "compute" else build(a.name)
     else:
         construct_compute(a.name, a.strategy, a.imports) if a.step == "compute" else construct_build(a.name)

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "title": "Monthly sleeve example",
+  "description": "A small synthetic dataset that illustrates the CSV input format.",
+  "series": [
+    {
+      "id": "two-sleeve-book",
+      "name": "Two-sleeve portfolio",
+      "kind": "portfolio",
+      "currency": "USD",
+      "assetClass": "Multi-asset",
+      "frequency": "monthly",
+      "periodsPerYear": 12,
+      "csv": "monthly-marks.csv",
+      "valueColumn": "portfolio",
+      "status": "Synthetic example",
+      "accounting": "Sum of two funded sleeves with no external cash flows.",
+      "evidence": {
+        "type": "synthetic",
+        "attribution": {"basis": "funded_equity", "members": ["trend", "carry"]}
+      }
+    },
+    {
+      "id": "trend", "name": "Trend sleeve", "kind": "strategy",
+      "family": "Trend following", "assetClass": "Futures",
+      "currency": "USD", "frequency": "monthly", "periodsPerYear": 12,
+      "status": "Synthetic example", "csv": "monthly-marks.csv", "valueColumn": "trend"
+    },
+    {
+      "id": "carry", "name": "Carry sleeve", "kind": "strategy",
+      "family": "Carry", "assetClass": "Currencies",
+      "currency": "USD", "frequency": "monthly", "periodsPerYear": 12,
+      "status": "Synthetic example", "csv": "monthly-marks.csv", "valueColumn": "carry"
+    }
+  ]
+}

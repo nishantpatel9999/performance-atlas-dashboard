@@ -699,6 +699,26 @@ def build(name):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("strategy")
-    ap.add_argument("step", choices=["compute", "build"])
+    ap.add_argument("step", choices=["compute", "build", "html"])
+    ap.add_argument("--output", type=Path, help="html: destination for the standalone performance report")
+    ap.add_argument("--currency", default="INDEX", help="html: unit of the declared opening capital")
+    ap.add_argument("--opening-capital", type=float, default=1.0, help="html: capital basis for the saved P&L fractions")
+    calendars = ap.add_mutually_exclusive_group()
+    calendars.add_argument("--calendar", choices=["weekday", "daily"],
+                           help="html NAV ratios: Monday-Friday (252/year) or every UTC day (365/year). "
+                                "Multiweek weekday-only histories default to weekdays.")
+    calendars.add_argument("--session-dates", type=Path, help="html: JSON array of expected ISO dates (252/year), "
+                           "or an object with sessionDates and periodsPerYear")
     a = ap.parse_args()
-    compute(a.strategy) if a.step == "compute" else build(a.strategy)
+    if a.step == "html":
+        from lab.performance.native import render_native, strategy_bundle
+        if a.output is None:
+            ap.error("html requires --output")
+        try:
+            report = strategy_bundle(a.strategy, currency=a.currency, opening_capital=a.opening_capital,
+                                     calendar=a.calendar, session_dates=a.session_dates)
+            print(render_native(report, a.output, session_dates=a.session_dates))
+        except (ValueError, OSError) as exc:
+            ap.error(str(exc))
+    else:
+        compute(a.strategy) if a.step == "compute" else build(a.strategy)
