@@ -50,7 +50,7 @@ class Sleeve:
                                 "holdingHours": (times[bar] - times[self.entry_bar]) / 3_600_000})
             nav -= fee
             self.units = 0.0
-        if self.units == 0 and not final:
+        if self.units == 0 and side and not final:
             self.entry_bar, self.entry_price = bar, price
             self.units = side * nav * self.exposure / price
             self.entry_cost = self.charge(abs(self.units) * price)
@@ -88,6 +88,12 @@ def demo_bundle():
     benchmark_units = benchmark_capital / prices[0]
     benchmark = [benchmark_capital]
     gross_exposure, net_exposure = [0.0], [0.0]
+    # These illustrative rates belong to the synthetic market. Each sleeve holds a
+    # distinct instrument, so its standalone closing requirement is additive.
+    margin_fractions = ((0.48, 0.58), (0.12, 0.15), (0.16, 0.19), (0.05, 0.07))
+    entry_thresholds = (0.0012, 0.0007, 0.007, 0.75)
+    session_rows = [{"date": START.isoformat(), "active": 0, "overnight": 0,
+                     "marginUsd": 0.0, "marginBasis": "schedule_estimate"}]
     for sleeve in sleeves:
         sleeve.equity.append(sleeve.capital)
     regime, remaining, last_commodity = 0, 225, 0.0
@@ -108,14 +114,22 @@ def demo_bundle():
         for i, move in enumerate(moves):
             trend[i] = 0.94 * trend[i] + 0.06 * move
         signals = (trend[0], 1 if trend[0] < 0 else trend[1] + 0.0003, -commodity, carry)
+        previously_open = [s.units != 0 for s in sleeves]
         for i, sleeve in enumerate(sleeves):
             previous = prices[i]
             prices[i] *= 1 + moves[i]
             # A signal at this close sets the units for the next price change.
-            sleeve.close_mark(bar, times, previous, prices[i], 1 if signals[i] >= 0 else -1, bar == len(times) - 1)
+            signal = signals[i]
+            side = 0 if abs(signal) < entry_thresholds[i] else (1 if signal > 0 else -1)
+            sleeve.close_mark(bar, times, previous, prices[i], side, bar == len(times) - 1)
         benchmark.append(benchmark_units * prices[0])
         portfolio_nav = sum(s.equity[-1] for s in sleeves)
         notionals = [s.units * price for s, price in zip(sleeves, prices)]
+        overnight = [s.units != 0 for s in sleeves]
+        requirement = sum(abs(n) * rates[int(n < 0)] for n, rates in zip(notionals, margin_fractions))
+        session_rows.append({"date": dates[bar].isoformat(),
+                             "active": sum(before or after for before, after in zip(previously_open, overnight)),
+                             "overnight": sum(overnight), "marginUsd": round(requirement, 2), "marginBasis": "schedule_estimate"})
         gross_exposure.append(sum(abs(n) for n in notionals) / portfolio_nav)
         net_exposure.append(sum(notionals) / portfolio_nav)
 
@@ -137,6 +151,10 @@ def demo_bundle():
     trades = sorted((t for s in sleeves for t in s.trades), key=lambda t: t["time"])
     book = dict(common, id="multi-asset", name="Multi-Asset Portfolio", kind="portfolio", equity=nav,
                 assetClass="Multi-asset", family="Funded sleeves", benchmarkId=BENCHMARK,
+                activity={"source": "Simulated positions at each weekday close. The model applies illustrative "
+                          "long/short fractions to closing USD notional. Equities 48%/58%, fixed income 12%/15%, "
+                          "commodities 16%/19%, currencies 5%/7%. Each sleeve holds a separate instrument.",
+                          "rows": session_rows},
                 accounting="Total net equity of four separately funded USD sleeves. Each sleeve retains its P&L.",
                 costModel="Commissions and slippage from the four sleeve ledgers.",
                 costs=_costs(sum(s.commissions for s in sleeves), sum(s.slippage for s in sleeves)),

@@ -319,8 +319,47 @@
           );
       }
     }
-    const source = seriesWithData[0],
-      tip = tooltip(host, f);
+    const times = seriesWithData[0].times;
+    inspectTime(
+      host,
+      f,
+      times,
+      x,
+      options.title || "Time series",
+      (t) => {
+        const rows = [];
+        for (const item of seriesWithData) {
+          const j = nearest(item.times, t);
+          if (item.times[j] === t) {
+            const value = item.values[j];
+            rows.push(
+              item.label +
+                "  " +
+                (Number.isFinite(value)
+                  ? (options.detailFormat || format)(value)
+                  : "—"),
+            );
+          }
+        }
+        return rows;
+      },
+      tMin,
+      tMax,
+    );
+  }
+
+  function inspectTime(
+    host,
+    f,
+    times,
+    x,
+    title,
+    describe,
+    min,
+    max,
+    sparse = false,
+  ) {
+    const tip = tooltip(host, f);
     const cursor = svgElement("line", {
       y1: f.top,
       y2: f.bottom,
@@ -331,51 +370,46 @@
     host.tabIndex = 0;
     host.setAttribute(
       "aria-label",
-      (options.title || "Time series") +
-        ". Use left and right arrow keys to inspect points.",
+      title + ". Use left and right arrow keys to inspect points.",
     );
-    let index = source.times.length - 1;
+    let index = times.length - 1;
     function showAt(i) {
-      index = Math.max(0, Math.min(source.times.length - 1, i));
-      const t = source.times[index],
+      index = Math.max(0, Math.min(times.length - 1, i));
+      const t = times[index],
         pos = x(t);
       cursor.setAttribute("visibility", "visible");
       cursor.setAttribute("x1", pos);
       cursor.setAttribute("x2", pos);
-      const rows = [];
-      for (const s of seriesWithData) {
-        const j = nearest(s.times, t);
-        if (s.times[j] === t)
-          rows.push(
-            s.label +
-              "  " +
-              (Number.isFinite(s.values[j])
-                ? (options.detailFormat || format)(s.values[j])
-                : "—"),
-          );
-      }
       const intraday =
-        source.times.length > 1 &&
-        Math.floor(t / DAY) ===
-          Math.floor(source.times[Math.max(0, index - 1)] / DAY) &&
-        index > 0;
-      const date =
+        index > 0 && Math.floor(t / DAY) === Math.floor(times[index - 1] / DAY);
+      const stamp =
         dateFormat.format(t) +
         (intraday
           ? " · " + new Date(t).toISOString().slice(11, 16) + " UTC"
           : "");
-      tip.show(pos, date, rows);
+      tip.show(pos, stamp, describe(t, index));
     }
     function hide() {
       tip.hide();
       cursor.setAttribute("visibility", "hidden");
     }
-    host.onpointermove = (e) => {
+    function point(e) {
       const pos = e.clientX - host.getBoundingClientRect().left;
-      const t = tMin + ((pos - f.left) / (f.right - f.left)) * (tMax - tMin);
-      showAt(nearest(source.times, t));
+      const t = min + ((pos - f.left) / (f.right - f.left)) * (max - min);
+      const i = nearest(times, t);
+      if (
+        sparse &&
+        Math.abs(x(times[i]) - pos) > 9 &&
+        Math.abs(times[i] - t) > DAY / 2
+      )
+        hide();
+      else showAt(i);
+    }
+    host.onpointermove = point;
+    host.onpointerdown = point;
+    host.onpointerleave = (e) => {
+      if (e.pointerType !== "touch") hide();
     };
-    host.onpointerleave = hide;
     host.onblur = hide;
     host.onkeydown = (e) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End", "Escape"].includes(e.key))
@@ -387,10 +421,166 @@
           e.key === "Home"
             ? 0
             : e.key === "End"
-              ? source.times.length - 1
+              ? times.length - 1
               : index + (e.key === "ArrowLeft" ? -1 : 1),
         );
     };
+    return { showAt, hide };
+  }
+
+  // Aligned panels keep integer counts and dollar requirements on separate scales.
+  function activity(host, rows, labels) {
+    if (!host || !rows.length) return;
+    const title =
+      "Daily strategy activity and overnight requirement in US dollars";
+    const f = frame(host, title, 352, 56);
+    const times = rows.map((r) => Date.parse(r.date + "T00:00:00Z"));
+    const min = Date.parse(labels.range.from + "T00:00:00Z"),
+      max = Date.parse(labels.range.to + "T00:00:00Z");
+    const x = (t) =>
+      min === max
+        ? (f.left + f.right) / 2
+        : f.left + ((t - min) / (max - min)) * (f.right - f.left);
+    const compact = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    });
+    let maxCount = 0,
+      maxAmount = 0;
+    for (const r of rows) {
+      maxCount = Math.max(maxCount, r.active ?? 0, r.overnight ?? 0);
+      maxAmount = Math.max(maxAmount, r.marginUsd ?? 0);
+    }
+    const countStep = Math.max(1, Math.ceil(maxCount / 4));
+    const countTicks = Array.from(
+      { length: Math.ceil(Math.max(1, maxCount) / countStep) + 1 },
+      (_, i) => i * countStep,
+    );
+    function track(top, bottom, heading) {
+      f.svg.append(
+        svgElement(
+          "text",
+          { x: f.left, y: top - 12, class: "track-title" },
+          heading,
+        ),
+      );
+      return { ...f, top, bottom };
+    }
+    const counts = track(30, 132, "Strategies");
+    const dollars = track(183, 317, "Overnight requirement · USD");
+    function emptyTrack(track, message) {
+      f.svg.append(
+        svgElement(
+          "text",
+          {
+            x: (f.left + f.right) / 2,
+            y: (track.top + track.bottom) / 2,
+            "text-anchor": "middle",
+          },
+          message,
+        ),
+      );
+    }
+    const hasCounts = rows.some(
+      (r) => Number.isFinite(r.active) || Number.isFinite(r.overnight),
+    );
+    const hasAmounts = rows.some((r) => Number.isFinite(r.marginUsd));
+    const cy = hasCounts
+      ? grid(
+          counts,
+          { lo: 0, hi: countTicks.at(-1), ticks: countTicks },
+          String,
+        )
+      : null;
+    const my = hasAmounts
+      ? grid(dollars, bounds(0, maxAmount || 1, true), (n) => compact.format(n))
+      : null;
+    if (!hasCounts) emptyTrack(counts, "No strategy counts recorded");
+    if (!hasAmounts) emptyTrack(dollars, "No overnight requirement recorded");
+    function draw(values, scale, color, dash, step) {
+      for (const run of runs(times, values, x, DAY)) {
+        const first = run[0];
+        if (run.length === 1) {
+          f.svg.append(
+            svgElement("circle", {
+              cx: x(times[first]),
+              cy: scale(values[first]),
+              r: 2.5,
+              fill: color,
+            }),
+          );
+          continue;
+        }
+        let d =
+          "M" +
+          x(times[first]).toFixed(2) +
+          "," +
+          scale(values[first]).toFixed(2);
+        for (let j = 1; j < run.length; j++) {
+          const i = run[j],
+            px = x(times[i]).toFixed(2),
+            py = scale(values[i]).toFixed(2);
+          d += step ? " H" + px + " V" + py : " L" + px + "," + py;
+        }
+        f.svg.append(
+          svgElement("path", {
+            d,
+            fill: "none",
+            stroke: color,
+            "stroke-width": 2,
+            "stroke-dasharray": dash || "none",
+            "stroke-linejoin": "round",
+          }),
+        );
+      }
+    }
+    draw(
+      rows.map((r) => r.active),
+      cy,
+      "var(--activity)",
+      "",
+      true,
+    );
+    draw(
+      rows.map((r) => r.overnight),
+      cy,
+      "var(--overnight)",
+      "5 3",
+      true,
+    );
+    const bases = new Set(
+      rows
+        .filter((r) => Number.isFinite(r.marginUsd))
+        .map((r) => r.marginBasis),
+    );
+    for (const basis of bases) {
+      const values = rows.map((r) =>
+        r.marginBasis === basis ? r.marginUsd : null,
+      );
+      draw(values, my, labels.color(basis), labels.dash(basis), false);
+    }
+    if (min === max)
+      f.svg.append(
+        svgElement(
+          "text",
+          { x: x(min), y: f.height - 6, "text-anchor": "middle" },
+          dateFormat.format(min),
+        ),
+      );
+    else timeTicks(f, min, max, x);
+    return inspectTime(
+      host,
+      { ...f, top: counts.top, bottom: dollars.bottom },
+      times,
+      x,
+      title,
+      (_, i) => labels.describe(rows[i]),
+      min,
+      max,
+      true,
+    );
   }
 
   function bars(host, data, options = {}) {
@@ -463,5 +653,5 @@
         );
     });
   }
-  window.PerformanceCharts = { line, bars, empty };
+  window.PerformanceCharts = { line, bars, activity, empty };
 })();

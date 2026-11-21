@@ -1,0 +1,31 @@
+{
+  "source": "Five synthetic sessions with invented rates and broker figures. The second session has no CAD exchange rate.",
+  "sessionDates": ["2023-12-22", "2023-12-26", "2023-12-27", "2023-12-28", "2023-12-29"],
+  "timeZone": "America/New_York",
+  "marginModel": "simple_net",
+  "accountIds": ["example"],
+  "intradayComplete": true,
+  "closeComplete": true,
+  "rows": [
+    {"date":"2023-12-28","active":1,"overnight":1,"marginUsd":1600,"marginBasis":"required_equity"}
+  ],
+  "positions": [
+    {"date":"2023-12-22","account":"example","strategyId":"trend","symbol":"FUT-A","closeQty":2},
+    {"date":"2023-12-22","account":"example","strategyId":"carry","symbol":"STOCK-B","closeQty":10,"price":40,"currency":"USD"},
+    {"date":"2023-12-26","account":"example","strategyId":"trend","symbol":"FUT-A","closeQty":2},
+    {"date":"2023-12-26","account":"example","strategyId":"carry","symbol":"STOCK-B","closeQty":0,"heldDuring":true},
+    {"date":"2023-12-27","account":"example","strategyId":"trend","symbol":"OPTION-C","closeQty":1,"complex":true},
+    {"date":"2023-12-29","account":"example","strategyId":"trend","symbol":"OPTION-C","closeQty":0,"heldDuring":true}
+  ],
+  "rules": [
+    {"id":"cad-contract","symbol":"FUT-A","validFrom":"2023-12-22","validTo":"2023-12-29","side":"long","method":"per_contract","rate":100,"currency":"CAD"},
+    {"id":"stock-value","symbol":"STOCK-B","validFrom":"2023-12-22","validTo":"2023-12-29","side":"long","method":"notional_fraction","rate":0.42,"currency":"USD","multiplier":1}
+  ],
+  "fx": [
+    {"date":"2023-12-22","currency":"CAD","usdPerUnit":0.75}
+  ],
+  "accountTotals": [
+    {"date":"2023-12-27","account":"example","marginUsd":1200,"marginBasis":"broker_requirement"},
+    {"date":"2023-12-29","account":"example","marginUsd":0,"marginBasis":"broker_requirement"}
+  ]
+}

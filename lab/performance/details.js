@@ -67,20 +67,62 @@
   const datedTrade = row => row != null && finite(row.time) && finite(row.pnl);
 
   function tradeBucket() {
-    return { count: 0, wins: 0, losses: 0, flat: 0, avgWin: 0, avgLoss: 0, pnl: 0 };
+    return { count: 0, wins: 0, losses: 0, flat: 0, avgWin: 0, avgLoss: 0, pnl: 0, correction: 0,
+      grossProfit: 0, grossLoss: 0, largestWinner: null, largestLoser: null };
+  }
+
+  // Neumaier compensation retains small cash amounts when large trades offset.
+  function additionRoundoff(sum, term, next) {
+    if (!finite(next)) return 0;
+    return Math.abs(sum) >= Math.abs(term) ? (sum - next) + term : (term - next) + sum;
   }
 
   function recordPnl(bucket, pnl) {
     bucket.count++;
-    bucket.pnl += pnl;
-    if (pnl > 0) bucket.avgWin += (pnl - bucket.avgWin) / ++bucket.wins;
-    else if (pnl < 0) bucket.avgLoss += (pnl - bucket.avgLoss) / ++bucket.losses;
-    else bucket.flat++;
+    const next = bucket.pnl + pnl;
+    bucket.correction += additionRoundoff(bucket.pnl, pnl, next);
+    bucket.pnl = next;
+    if (pnl > 0) {
+      bucket.avgWin += (pnl - bucket.avgWin) / ++bucket.wins;
+      bucket.grossProfit += pnl;
+      bucket.largestWinner = Math.max(bucket.largestWinner ?? pnl, pnl);
+    } else if (pnl < 0) {
+      bucket.avgLoss += (pnl - bucket.avgLoss) / ++bucket.losses;
+      bucket.grossLoss += pnl;
+      bucket.largestLoser = Math.min(bucket.largestLoser ?? pnl, pnl);
+    } else bucket.flat++;
   }
 
   function meanPnl(bucket) {
-    if (finite(bucket.pnl)) return bucket.pnl / bucket.count;
+    const net = bucket.pnl + bucket.correction;
+    if (finite(net)) return net / bucket.count;
     return bucket.avgWin * (bucket.wins / bucket.count) + bucket.avgLoss * (bucket.losses / bucket.count);
+  }
+
+  function totalPnl(bucket) {
+    const net = bucket.pnl + bucket.correction;
+    return finite(net) ? net : numberOrNull(meanPnl(bucket) * bucket.count);
+  }
+
+  function measuredTrades(bucket = tradeBucket()) {
+    const { count, wins, losses, flat, avgWin, avgLoss, largestWinner, largestLoser } = bucket;
+    const weight = Math.max(wins, losses, 1);
+    const expectancy = count ? numberOrNull(meanPnl(bucket)) : null;
+    return {
+      count, wins, losses, flat, winRate: ratio(wins, count), expectancy,
+      netPnl: totalPnl(bucket),
+      grossProfit: numberOrNull(bucket.grossProfit), grossLoss: numberOrNull(bucket.grossLoss),
+      profitFactor: ratio(avgWin * (wins / weight), -avgLoss * (losses / weight)),
+      avgWin: wins ? avgWin : null, avgLoss: losses ? avgLoss : null, largestWinner, largestLoser,
+      // Divide by the group mean first so an overflowing subtotal does not erase its share.
+      largestWinnerShare: wins ? ratio(largestWinner / avgWin, wins) : null,
+      largestLoserShare: losses ? ratio(largestLoser / avgLoss, losses) : null,
+    };
+  }
+
+  function tradeBreakdown(total, sides) {
+    const all = measuredTrades(total), long = measuredTrades(sides.get("long")), short = measuredTrades(sides.get("short"));
+    return { all, long, short, unclassifiedCount: all.count - long.count - short.count };
   }
 
   /** Use realized P&L at each close in [start, end], in original P&L units.
@@ -91,7 +133,8 @@
     const result = {
       count: 0, wins: 0, losses: 0, flat: 0, winRate: null, profitFactor: null,
       expectancy: null, avgWin: null, avgLoss: null, payoff: null, best: null, worst: null,
-      winStreak: partial ? null : 0, lossStreak: partial ? null : 0, meanHoldingHours: null, bySide: {}, bins: []
+      winStreak: partial ? null : 0, lossStreak: partial ? null : 0, meanHoldingHours: null, bySide: {}, bins: [],
+      breakdown: null, outcomes: []
     };
     if (!Array.isArray(series?.trades)) return { ...result, reason: "Dated realized trades are unavailable." };
     const range = bounds(opts);
@@ -100,15 +143,16 @@
     const start = Math.max(range.start, horizon.start);
     const end = Math.min(range.end, horizon.end);
     const rows = series.trades.filter(row => row && finite(row.time) && row.time >= start && row.time <= end && finite(row.pnl));
-    if (!rows.length) return { ...result, reason: "No dated realized trades closed in this range." };
+    const sides = new Map(), total = tradeBucket();
+    if (!rows.length) return { ...result, breakdown: tradeBreakdown(total, sides), reason: "No dated realized trades closed in this range." };
     rows.sort((a, b) => a.time - b.time);
 
     result.best = result.worst = rows[0].pnl;
-    const sides = new Map(), total = tradeBucket();
     let winRun = 0, lossRun = 0, holdingMean = 0, holdingCount = 0;
     for (const row of rows) {
       const { pnl, holdingHours } = row;
       const side = text(row.side) ? row.side.trim().toLowerCase() : "unknown";
+      result.outcomes.push({ time: row.time, pnl, side, holdingHours: finite(holdingHours) && holdingHours >= 0 ? holdingHours : null });
       if (!sides.has(side)) sides.set(side, tradeBucket());
       recordPnl(total, pnl);
       recordPnl(sides.get(side), pnl);
@@ -123,15 +167,14 @@
       if (finite(holdingHours) && holdingHours >= 0) holdingMean += (holdingHours - holdingMean) / ++holdingCount;
     }
     result.bySide = Object.fromEntries(Array.from(sides, ([side, bucket]) => {
-      const { count, wins, losses, flat, pnl } = bucket;
-      return [side, { count, wins, losses, flat, winRate: wins / count,
-        pnl: finite(pnl) ? pnl : numberOrNull(meanPnl(bucket) * count) }];
+      const { count, wins, losses, flat } = bucket;
+      return [side, { count, wins, losses, flat, winRate: wins / count, pnl: totalPnl(bucket) }];
     }));
     const { count, wins, losses, flat, avgWin, avgLoss } = total;
     Object.assign(result, { count, wins, losses, flat, winRate: wins / count, expectancy: meanPnl(total),
       avgWin: wins ? avgWin : null, avgLoss: losses ? avgLoss : null });
-    const weight = Math.max(wins, losses, 1);
-    result.profitFactor = ratio(avgWin * (wins / weight), -avgLoss * (losses / weight));
+    result.breakdown = tradeBreakdown(total, sides);
+    result.profitFactor = result.breakdown.all.profitFactor;
     result.payoff = result.avgLoss === null ? null : ratio(result.avgWin, -result.avgLoss);
     result.meanHoldingHours = holdingCount ? holdingMean : null;
     result.bins = histogram(rows, result.worst, result.best);
@@ -182,12 +225,150 @@
     return result;
   }
 
+  function correlationMemberIds(portfolio) {
+    if (Array.isArray(portfolio.holdings)) {
+      return portfolio.holdings.filter(h => h && finite(h.weight) && h.weight !== 0).map(h => h.id);
+    }
+    const declaration = portfolio.evidence?.attribution;
+    return declaration?.basis === "funded_equity" && Array.isArray(declaration.members)
+      ? declaration.members : [];
+  }
+
+  /** Gain-to-pain uses finite signed period returns. Log growth uses the actual
+   *  equity endpoints, so a missing intermediate return cannot reduce the horizon. */
+  function returnMeasures(analysis) {
+    const values = analysis.returns.values;
+    let scale = 0, validReturns = 0;
+    for (const value of values) {
+      if (!finite(value)) continue;
+      scale = Math.max(scale, Math.abs(value));
+      validReturns++;
+    }
+    let sum = 0, correction = 0, pain = 0;
+    if (scale > 0) {
+      for (const value of values) {
+        if (!finite(value)) continue;
+        const term = value / scale, next = sum + term;
+        correction += additionRoundoff(sum, term, next);
+        sum = next;
+        if (term < 0) pain -= term;
+      }
+    }
+    const { startEquity: open, endEquity: end } = analysis.summary;
+    let cumulativeLogReturn = null;
+    if (finite(open) && open > 0 && finite(end) && end > 0) {
+      const change = (end - open) / open;
+      cumulativeLogReturn = Math.abs(change) < 0.5 ? Math.log1p(change) : Math.log(end) - Math.log(open);
+    }
+    return { gainToPain: ratio(sum + correction, pain), cumulativeLogReturn, validReturns };
+  }
+
+  const utcDay = 86_400_000;
+  const monthNumber = date => date.getUTCFullYear() * 12 + date.getUTCMonth();
+
+  function nextMonth(date) {
+    const next = new Date(date.getTime());
+    next.setUTCHours(0, 0, 0, 0);
+    next.setUTCMonth(next.getUTCMonth() + 1, 1);
+    return next.getTime();
+  }
+
+  // The report accepts weekends and at most one possible weekday holiday
+  // after a trading close. A seven-day market must reach the final UTC day.
+  function nearMonthEnd(date, sevenDay = false) {
+    const remaining = nextMonth(date) / utcDay - 1 - Math.floor(date.getTime() / utcDay);
+    if (!remaining || sevenDay) return remaining === 0;
+    if (remaining > 3) return false;
+    let weekdays = 0;
+    for (let d = 1; d <= remaining; d++) {
+      const weekday = (date.getUTCDay() + d) % 7;
+      if (weekday > 0 && weekday < 6) weekdays++;
+    }
+    return weekdays <= 1;
+  }
+
+  // For each scheduled month, record its preceding expected session. A long
+  // exchange closure can connect two observed months that are far apart.
+  function precedingSessions(series) {
+    if (!Array.isArray(series.sessionDates)) return null;
+    const result = new Map();
+    let previous = -Infinity, lastMonth;
+    for (const iso of series.sessionDates) {
+      const month = Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7)) - 1;
+      if (month !== lastMonth) result.set(month, previous);
+      previous = Date.parse(iso);
+      lastMonth = month;
+    }
+    return result;
+  }
+
+  /** Subtract actual marks at the calendar return's boundaries. Division by
+   *  (1 + return) cannot recover opening capital after a total loss. */
+  function monthlyAmounts(series, analysis) {
+    const { times, equity } = analysis, sessions = precedingSessions(series);
+    const unitized = /\b(?:uniti[sz]ed|per[ -](?:unit|share))\b/i.test(series.accounting || "");
+    const unit = series.currency === "INDEX" ? "index points"
+      : unitized ? series.currency + " per unit" : series.currency;
+    let priorTime = analysis.meta.baselineTime, priorEquity = analysis.summary.startEquity;
+    let i = times[0] === priorTime ? 1 : 0;
+    const months = analysis.months.map(row => {
+      const first = i, stop = nextMonth(new Date(times[i]));
+      while (i < times.length && times[i] < stop) i++;
+      const key = row.year * 12 + row.month - 1, prior = new Date(priorTime);
+      const priorMonth = monthNumber(prior);
+      const canCarry = sessions ? sessions.has(key) && priorTime >= sessions.get(key)
+        : priorMonth === key - 1 && nearMonthEnd(prior, analysis.meta.calendar === "seven-day");
+      const open = priorMonth === key || canCarry ? priorEquity : equity[first];
+      priorTime = times[i - 1];
+      priorEquity = equity[i - 1];
+      return { ...row, amount: finite(row.return) ? numberOrNull(priorEquity - open) : null };
+    });
+    return { unit, months };
+  }
+
+  /** Count positive, flat and losing historical windows at the declared closes.
+   *  Pass analyze(series, { months, ...bounds }) for the same month count. */
+  function profitableWindows(analysis, months) {
+    const { rolling, returns, meta } = analysis;
+    const result = { months, profitable: 0, flat: 0, losing: 0, eligible: 0, gapped: 0,
+      excluded: rolling.times.length, rate: null, reason: null };
+    if (meta.frequency === "annual" && months % 12 !== 0) {
+      result.reason = "Annual closes provide only whole-year windows.";
+      return result;
+    }
+    let lastMissing = -Infinity;
+    for (let i = 0; i < rolling.times.length; i++) {
+      const end = rolling.times[i], open = rolling.openingTimes[i], value = rolling.return[i];
+      if (!finite(returns.values[i])) lastMissing = end;
+      if (!finite(open)) continue;
+      if (lastMissing > open) {
+        result.gapped++;
+        continue;
+      }
+      if (!finite(value)) continue;
+      if (meta.frequency === "monthly") {
+        const opening = new Date(open), closing = new Date(end);
+        // Match monthly observation days or two conventional month ends
+        // (e.g. August/February). A funding or partial close can be weeks off.
+        if (monthNumber(closing) - monthNumber(opening) !== months) continue;
+        if (opening.getUTCDate() !== closing.getUTCDate() && !(nearMonthEnd(opening) && nearMonthEnd(closing))) continue;
+      }
+      result.eligible++;
+      if (value > 0) result.profitable++;
+      else if (value === 0) result.flat++;
+      else result.losing++;
+    }
+    result.excluded -= result.eligible;
+    result.rate = ratio(result.profitable, result.eligible);
+    if (!result.eligible) result.reason = "No full window has both a usable opening and continuous sampled returns.";
+    return result;
+  }
+
   // An explicit selection keeps its order. Short holdings qualify. A zero weight does not.
   function selectedStrategies(seriesArray, opts) {
     const entries = Array.isArray(seriesArray) ? seriesArray : [];
     const strategies = new Map(entries.filter(s => s?.kind === "strategy" && text(s.id)).map(s => [s.id, s]));
-    const held = opts.portfolio == null ? null : new Set((opts.portfolio.holdings || [])
-      .filter(h => h && finite(h.weight) && h.weight !== 0).map(h => h.id));
+    const held = opts.portfolio == null ? null : new Set(correlationMemberIds(opts.portfolio));
     const ids = opts.ids == null ? (held || strategies.keys()) : new Set(opts.ids);
     return Array.from(ids).filter(id => strategies.has(id) && (!held || held.has(id))).map(id => strategies.get(id));
   }
@@ -240,7 +421,8 @@
 
   function sample(series, opts) {
     const { analysis, reason } = readAnalysis(series, opts);
-    return { rows: analysis ? intervals(analysis) : [], reason };
+    return { rows: analysis ? intervals(analysis) : [], reason,
+      start: analysis?.meta.baselineTime, end: analysis?.times.at(-1), gaps: analysis?.meta.gaps.length || 0 };
   }
 
   function common(left, right, visit) {
@@ -381,24 +563,70 @@
     return out;
   }
 
-  /** Rows use the requested strategy IDs. Each cell has its own paired observation count. */
+  function missingCorrelation(left, right, a, b, stats) {
+    const inputs = a.id === b.id ? [[a, left]] : [[a, left], [b, right]];
+    const missing = inputs.filter(([, s]) => s.end == null).map(([s]) => s.name);
+    if (missing.length) return `No equity marks in the selected dates for ${missing.join(" and ")}.`;
+    const empty = inputs.filter(([, s]) => !s.rows.length).map(([s]) => s.name);
+    if (empty.length) return `No usable sampled return in the selected dates for ${empty.join(" and ")}.`;
+    if (!stats.n) {
+      if (Math.min(left.end, right.end) <= Math.max(left.start, right.start)) return "The observed return intervals do not overlap.";
+      return "No usable pair has the same opening and closing timestamps.";
+    }
+    if (stats.n === 1) return "Only one interval matched. Correlation needs at least two shared intervals.";
+    const flat = [];
+    if (deviation(stats.xx, stats.meanX, stats.n) === 0) flat.push(a.name);
+    if (a.id !== b.id && deviation(stats.yy, stats.meanY, stats.n) === 0) flat.push(b.name);
+    if (flat.length) return `Constant sampled returns for ${flat.join(" and ")} over the matched intervals.`;
+    return "The matched returns exceed the numeric range for correlation.";
+  }
+
+  /** Each cell counts exact matched intervals. Request diagnostics for bounds, spans and a
+   *  display reason. The bounds describe the outer matched marks, including the opening mark. */
   function correlationMatrix(seriesArray, opts = {}) {
     const selected = selectedStrategies(seriesArray, opts);
-    const samples = selected.map(s => sample(s, opts).rows);
+    const samples = selected.map(s => sample(s, opts));
     const values = selected.map(() => Array(selected.length).fill(null));
     const counts = selected.map(() => Array(selected.length).fill(0));
+    const diagnostics = opts.diagnostics ? selected.map(() => Array(selected.length)) : null;
     for (let i = 0; i < selected.length; i++) {
       for (let j = i; j < selected.length; j++) {
-        if (incompatible(selected[i], selected[j])) continue;
+        const a = selected[i], b = selected[j], left = samples[i], right = samples[j];
+        const mismatch = incompatible(a, b);
+        const problem = mismatch || left.reason || right.reason;
         const stats = moments();
-        common(samples[i], samples[j], (a, b) => observe(stats, a.value, b.value));
+        let start = null, end = null, segments = 0;
+        if (!problem) common(left.rows, right.rows, (x, y) => {
+          observe(stats, x.value, y.value);
+          if (end !== x.start) segments++;
+          start ??= x.start;
+          end = x.end;
+        });
         let r = correlation(stats);
         if (i === j && r !== null) r = 1;
         counts[i][j] = counts[j][i] = stats.n;
         values[i][j] = values[j][i] = r;
+        if (diagnostics) {
+          const reason = problem || (r === null ? missingCorrelation(left, right, a, b, stats) : null);
+          const notes = [];
+          if (mismatch) {
+            const basis = s => `${s.name} uses ${s.currency || "unspecified units"}, ${s.frequency}, ${s.periodsPerYear} periods per year.`;
+            notes.push(basis(a), basis(b));
+          }
+          if (!problem && (left.gaps || right.gaps)) notes.push("The sampler excluded gaps in the selected dates.");
+          if (segments > 1) notes.push(`The matches form ${segments} separate spans.`);
+          if (stats.n && (left.rows.length !== stats.n || right.rows.length !== stats.n)) {
+            const usable = (n, name) => `${n} usable return${n === 1 ? "" : "s"} for ${name}`;
+            notes.push(`The range has ${usable(left.rows.length, a.name)} and ${usable(right.rows.length, b.name)}.`);
+          }
+          if (r !== null && stats.n === 2) notes.push("With only two shared intervals, the magnitude is always 1.");
+          diagnostics[i][j] = diagnostics[j][i] = { start, end, segments, reason, note: notes.join(" ") };
+        }
       }
     }
-    return { ids: selected.map(s => s.id), names: selected.map(s => s.name), values, counts };
+    const result = { ids: selected.map(s => s.id), names: selected.map(s => s.name), values, counts };
+    if (diagnostics) result.diagnostics = diagnostics;
+    return result;
   }
 
   function fundedMembers(portfolio, allSeries) {
@@ -592,5 +820,6 @@
     return entries.concat(researchFamilies.map(args => familyCoverage(series.evidence?.results, ...args)));
   }
 
-  return Object.freeze({ benchmark, trades, tails, correlationMatrix, strategyGroups, attribution, evidenceCoverage });
+  return Object.freeze({ benchmark, trades, tails, correlationMatrix, strategyGroups, attribution, evidenceCoverage,
+    returnMeasures, monthlyAmounts, profitableWindows });
 });

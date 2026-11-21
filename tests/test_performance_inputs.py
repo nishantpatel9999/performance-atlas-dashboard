@@ -180,10 +180,12 @@ class InputTests(unittest.TestCase):
         from lab.performance import build
         attack = "</ScRiPt><p>&\u2028\u2029<!--REPORT_SCRIPTS-->"
         report = bundle(marked(name=attack, evidence={"note": attack}))
-        template = "<html><!--REPORT_STYLE--><!--REPORT_DATA--><!--REPORT_SCRIPTS--></html>"
+        template = "<html><!--REPORT_THEME--><!--REPORT_STYLE--><!--REPORT_DATA--><!--REPORT_SCRIPTS--></html>"
         (self.root / "template.html").write_text(template)
         (self.root / "style.css").write_text("body { color: black }")
-        scripts = ["metrics.js", "details.js", "charts.js", "app.js"]
+        scripts = ["theme.js", *build.SCRIPTS]
+        for name in build.STYLES[1:]:
+            (self.root / name).write_text("/* " + name + " */")
         for name in scripts:
             (self.root / name).write_text("// " + name + "\n")
         out = self.root / "nested/report.html"

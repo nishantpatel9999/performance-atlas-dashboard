@@ -12,6 +12,8 @@ python -m lab.performance.evidence --html results/demo/report.html
 python -m lab.performance.evidence --html results/demo/report.html --check results/demo/research_tests/manifest.json
 ```
 
+For a portfolio with an activity ledger, `session_activity` reports the number of dated observations, the share of measured sessions with an active strategy and peak USD requirements for each reported basis.
+
 The default series matches the initial report view. Use `--series ID` for another series and `--out FILE` for its manifest. The command records the HTML hash, embedded JSON hash, code hashes, return intervals, and original equity marks. The example also records its generator hash and seed after reproducing the embedded bundle.
 
 For the independent document check, set `REPORT_PREFLIGHT` to your installed master-quant-validator `scripts/report_preflight.py`. Run the checker on both files.

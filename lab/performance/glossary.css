@@ -1,0 +1,142 @@
+.atlas-term {
+  display: inline;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  overflow-wrap: anywhere;
+  text-decoration: underline dotted var(--soft, #66736c);
+  text-underline-offset: 0.2em;
+  cursor: help;
+}
+.atlas-term:hover,
+.atlas-term:focus-visible {
+  color: var(--brand, #116e56);
+  text-decoration-style: solid;
+}
+.atlas-term:focus-visible,
+.atlas-glossary :focus-visible {
+  outline: 2px solid var(--focus, #116e56);
+  outline-offset: 2px;
+}
+.atlas-term-tip {
+  position: fixed;
+  z-index: 40;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  margin: 0;
+  border: 1px solid var(--line, #dce2da);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  background: var(--panel, white);
+  color: var(--ink, #202c28);
+  box-shadow: 0 4px 18px #162a3526;
+  font: 400 0.8125rem/1.45 var(--sans, system-ui, sans-serif);
+}
+.atlas-term-tip strong,
+.atlas-term-tip span {
+  display: block;
+}
+.atlas-term-tip strong {
+  margin-bottom: 0.15rem;
+}
+.atlas-settings-glossary {
+  margin-inline-start: auto;
+}
+.atlas-glossary {
+  box-sizing: border-box;
+  width: min(37rem, calc(100vw - 1.5rem));
+  height: min(38rem, calc(100dvh - 1.5rem));
+  max-height: calc(100dvh - 1.5rem);
+  border: 1px solid var(--line, #dce2da);
+  border-radius: 14px;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  background: var(--panel, white);
+  color: var(--ink, #202c28);
+  font-family: var(--sans, system-ui, sans-serif);
+}
+.atlas-glossary[open] {
+  display: flex;
+  flex-direction: column;
+}
+.atlas-glossary::backdrop {
+  background: #101c2b80;
+}
+.atlas-glossary .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.atlas-glossary h2 {
+  margin: 0;
+  font: 500 1.9rem/1.15 var(--serif, Georgia, serif);
+}
+.atlas-glossary button,
+.atlas-settings-glossary {
+  min-height: 40px;
+  padding-inline: 0.7rem;
+}
+.atlas-glossary label {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+  color: var(--muted, #54615b);
+  font-size: 0.8125rem;
+}
+.atlas-glossary input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line, #dce2da);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  background: var(--faint, #f4f7f2);
+  color: var(--ink, #202c28);
+  font: inherit;
+  font-size: 1rem;
+}
+.atlas-glossary-count {
+  margin: 0.7rem 0 0.25rem;
+  color: var(--muted, #54615b);
+  font-size: 0.8125rem;
+}
+.atlas-glossary-results {
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+.atlas-glossary-results > div {
+  border-top: 1px solid var(--line, #dce2da);
+  padding: 0.7rem 0.3rem 0.7rem 0;
+}
+.atlas-glossary-results dt {
+  font-weight: 650;
+}
+.atlas-glossary-results dd {
+  margin: 0.2rem 0 0;
+  color: var(--muted, #54615b);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+@media print {
+  .atlas-glossary[open],
+  .atlas-term-tip,
+  .atlas-settings-glossary {
+    display: none;
+  }
+  .atlas-term {
+    text-decoration: none;
+  }
+}

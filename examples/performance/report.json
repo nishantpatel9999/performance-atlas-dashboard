@@ -13,6 +13,7 @@
       "periodsPerYear": 12,
       "csv": "monthly-marks.csv",
       "valueColumn": "portfolio",
+      "activityFile": "overnight.json",
       "status": "Synthetic example",
       "accounting": "Sum of two funded sleeves with no external cash flows.",
       "evidence": {

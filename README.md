@@ -14,11 +14,11 @@ Download the example HTML file and open it in a browser. The charts, settings an
 python3 -m lab.performance --demo --output results/performance/report.html
 ```
 
-The demo contains four synthetic strategy histories, their funded portfolio and a synthetic benchmark. Each shareable HTML file includes its underlying observations, trade records and source metadata.
+The demo contains four synthetic strategy histories, their funded portfolio and a synthetic benchmark. Open **Activity and margin** to inspect strategy counts and modeled overnight capital for each session. Open **Comparisons** on a strategy to inspect its return correlations with peers. Hover or tap an underlined term for its definition, or search **Glossary**. The appearance menu follows your system by default and also offers **Light** and **Dark**. Each shareable HTML file includes its underlying observations, trade records and source metadata.
 
 ## Use your own results
 
-1. Copy the example manifest and its CSV. Give each strategy, portfolio and benchmark a unique ID.
+1. Copy the example manifest, its CSV, and the optional [overnight activity example](examples/performance/overnight.json). Give each strategy, portfolio and benchmark a unique ID. Remove the `activityFile` entry to use only equity histories.
 2. Supply a performance history, currency, return sampling interval and periods per year for each series. A portfolio accepts the actual portfolio equity or its dated net P&L stream.
 3. Build the report and open the HTML file in a browser.
 

@@ -7,6 +7,10 @@ An optional diagnostics array contains named histories with unit, times, values 
 optional description. Each clock is independent. A percent unit (%) uses fractions;
 all other units are literal. Null denotes a missing observation. A diagnostic may
 specify a relative csv with dateColumn and valueColumn (defaults: date and value).
+
+Portfolios may supply broker-close activity inline or with a relative activityFile.
+The activity module reads authoritative snapshots and optional historical position,
+margin-rule and FX ledgers.
 """
 
 import csv
@@ -23,7 +27,7 @@ FREQUENCIES = ("daily", "weekly", "monthly", "annual")
 REQUIRED = {"id", "name", "kind", "currency", "periodsPerYear", "frequency", "times", "equity"}
 TEXT = {"assetClass", "family", "accounting", "costModel", "source", "status", "benchmarkId"}
 OBJECTS = {"costs", "tradeSummary", "sourceMetrics", "evidence"}
-OPTIONAL = TEXT | OBJECTS | {"trades", "holdings", "notes", "sessionDates", "diagnostics"}
+OPTIONAL = TEXT | OBJECTS | {"trades", "holdings", "notes", "sessionDates", "diagnostics", "activity"}
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 MILLISECOND = timedelta(milliseconds=1)
 
@@ -209,6 +213,11 @@ def _validate_series(item, where):
     if "diagnostics" in item:
         result["diagnostics"] = _diagnostics(item["diagnostics"], times[0], times[-1], times[stop - 1],
                                              f"{where}.diagnostics")
+    if "activity" in item:
+        from .activity import validate_activity
+        if item["kind"] != "portfolio":
+            raise ValueError(f"{where}.activity requires a portfolio")
+        result["activity"] = validate_activity(item["activity"], times[0], times[-1], times[stop - 1])
     if "notes" in item:
         for note in _array(item["notes"], f"{where}.notes"):
             _text(note, f"{where}.notes", allow_empty=True)
@@ -230,12 +239,19 @@ def _validate_series(item, where):
 
 def validate_bundle(bundle):
     """Return a validated v1 bundle. Retain the first nonpositive mark and stop there."""
-    _fields(bundle, {"version", "title", "series"}, {"version", "title", "description", "series"}, "report")
+    _fields(bundle, {"version", "title", "series"}, {"version", "title", "description", "series", "glossary"}, "report")
     if type(bundle["version"]) is not int or bundle["version"] != 1:
         raise ValueError("version must be 1")
     _text(bundle["title"], "title")
     if "description" in bundle:
         _text(bundle["description"], "description", allow_empty=True)
+    if "glossary" in bundle:
+        glossary = bundle["glossary"]
+        if not isinstance(glossary, dict):
+            raise ValueError("report.glossary must map terms to definitions")
+        for term, definition in glossary.items():
+            _text(term, "report.glossary term")
+            _text(definition, f"report.glossary[{term!r}]")
     rows = _array(bundle["series"], "series")
     if not rows:
         raise ValueError("series must contain at least one history")
@@ -411,14 +427,25 @@ def _unique_keys(pairs):
     return result
 
 
+def _read_json(path):
+    """Read a portable manifest or activity sidecar without rounding nonzero amounts to zero."""
+    def finite_float(raw):
+        value = _number(float(raw), "JSON number")
+        if value == 0 and re.search("[1-9]", raw.lower().partition("e")[0]):
+            raise ValueError("a nonzero JSON number is too small to represent")
+        return value
+
+    with path.open(encoding="utf-8-sig") as stream:
+        return json.load(stream, object_pairs_hook=_unique_keys, parse_float=finite_float)
+
+
 def load_config(path, *, output=None):
     """Load canonical JSON or a portable manifest. All trade P&L is in the output currency."""
     path = Path(path)
     output_path = Path(output).resolve() if output is not None else None
     if path.resolve() == output_path:
         raise ValueError("--output must differ from --config")
-    with path.open(encoding="utf-8-sig") as f:
-        config = json.load(f, object_pairs_hook=_unique_keys)
+    config = _read_json(path)
     if not isinstance(config, dict):
         raise ValueError("the manifest must be a JSON object")
     config.setdefault("title", DEFAULT_TITLE)
@@ -432,6 +459,15 @@ def load_config(path, *, output=None):
             if "trades" in row:
                 raise ValueError("supply either trades or tradesCsv")
             row["trades"] = _trade_csv(_csv_path(path.parent, row.pop("tradesCsv"), output_path))
+        if "activityFile" in row:
+            from .activity import load_activity_file
+            if "activity" in row:
+                raise ValueError("supply either activity or activityFile")
+            source = _csv_path(path.parent, row.pop("activityFile"), output_path)
+            row["activity"] = load_activity_file(source, output=output_path)
+        elif "activity" in row:
+            from .activity import build_activity
+            row["activity"] = build_activity(row["activity"], base_dir=path.parent, output=output_path)
         for diagnostic in _array(row.get("diagnostics", []), "diagnostics"):
             if isinstance(diagnostic, dict) and "csv" in diagnostic:
                 _diagnostic_csv(diagnostic, _csv_path(path.parent, diagnostic.pop("csv"), output_path))

@@ -1,22 +1,33 @@
 :root {
   color-scheme: light;
-  --paper: #f5f6f2;
-  --panel: #fff;
-  --ink: #202c28;
-  --muted: #5b6761;
-  --soft: #748178;
-  --line: #dce2da;
-  --faint: #f4f7f2;
-  --brand: #116e56;
-  --brand-soft: #e5f0e8;
-  --gold: #a0732b;
-  --loss: #a35140;
-  --loss-soft: #f6eae3;
-  --grid: #e5eae3;
-  --rail: #18352d;
-  --rail-text: #e9f1e9;
-  --rail-sub: #b0c6b8;
-  --rail-active: #304e42;
+  --paper: #f1f4f8;
+  --panel: #ffffff;
+  --ink: #19273c;
+  --muted: #485870;
+  --soft: #596a81;
+  --line: #d6dfe9;
+  --faint: #f0f4f9;
+  --brand: #225ab8;
+  --brand-soft: #e6effc;
+  --gain: #09734e;
+  --gold: #965700;
+  --loss: #b53b37;
+  --loss-soft: #fcecea;
+  --activity: #006f80;
+  --overnight: #80600b;
+  --margin: #7546ab;
+  --grid: #dce3ed;
+  --action: #233f74;
+  --action-text: #ffffff;
+  --action-hover: #172f5d;
+  --focus: #386dcc;
+  --rail: #19283d;
+  --rail-text: #f3f6fb;
+  --rail-sub: #beccdd;
+  --rail-active: #314b71;
+  --rail-hover: #263b57;
+  --rail-line: #40516a;
+  --rail-icon: #b2d1ff;
   --serif: "Iowan Old Style", "Baskerville", "Georgia", serif;
   --sans:
     "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial,
@@ -65,7 +76,7 @@ input:focus-visible,
 select:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible {
-  outline: 3px solid #4b9d87;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 [hidden] {
@@ -157,7 +168,7 @@ summary:focus-visible,
   gap: 12px;
   width: 100%;
   min-height: 40px;
-  color: #c5d4ca;
+  color: var(--rail-sub);
   padding: 9px 13px;
   border-radius: 7px;
   text-align: left;
@@ -165,23 +176,23 @@ summary:focus-visible,
   font-weight: 500;
 }
 .nav-link:hover {
-  background: #27473a;
+  background: var(--rail-hover);
   color: #fff;
 }
 .nav-link[aria-current="page"] {
   background: var(--rail-active);
-  color: #f3fbf1;
+  color: var(--rail-text);
 }
 .nav-link[aria-current="page"] .icon {
-  color: #c7eaa9;
+  color: var(--rail-icon);
 }
 .nav-divider {
-  border-top: 1px solid #395347;
+  border-top: 1px solid var(--rail-line);
   margin: 13px 9px 10px;
 }
 .rail-bottom {
   margin-top: auto;
-  border-top: 1px solid #3a5147;
+  border-top: 1px solid var(--rail-line);
   padding-top: 16px;
 }
 .rail-source {
@@ -193,7 +204,7 @@ summary:focus-visible,
 .rail-source > .icon {
   width: 20px;
   height: 20px;
-  color: #bedab9;
+  color: var(--rail-icon);
 }
 .rail-source strong,
 .rail-source small {
@@ -283,12 +294,12 @@ summary:focus-visible,
 }
 .export-button,
 .primary-button {
-  background: var(--rail);
-  color: white;
+  background: var(--action);
+  color: var(--action-text);
 }
 .export-button:hover,
 .primary-button:hover {
-  background: #285844;
+  background: var(--action-hover);
 }
 .icon-button {
   height: 32px;
@@ -477,7 +488,7 @@ h1 {
   line-height: 1.4;
 }
 .positive {
-  color: var(--brand);
+  color: var(--gain);
 }
 .negative {
   color: var(--loss);
@@ -930,10 +941,10 @@ dialog {
   padding: 23px;
   color: var(--ink);
   background: var(--panel);
-  box-shadow: 0 24px 90px #11241f35;
+  box-shadow: 0 24px 90px #14294135;
 }
 dialog::backdrop {
-  background: #10251f64;
+  background: #101c2b80;
 }
 .dialog-header {
   align-items: flex-start;
@@ -1092,7 +1103,7 @@ dialog select {
     position: fixed;
     inset: 0;
     z-index: 7;
-    background: #10251f55;
+    background: #101c2b75;
   }
   .frame {
     margin-left: 0;
@@ -1273,34 +1284,30 @@ dialog select {
     transition: none;
   }
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --paper: #14201c;
-    --panel: #1c2b24;
-    --ink: #e1ebe2;
-    --muted: #b1c1b3;
-    --soft: #a2b7a7;
-    --line: #38483d;
-    --faint: #24362c;
-    --brand: #89cfac;
-    --brand-soft: #28463a;
-    --gold: #e0b665;
-    --loss: #e7a892;
-    --loss-soft: #47332d;
-    --grid: #35463b;
-    --rail: #10261e;
-    --rail-active: #284439;
-  }
-  .export-button,
-  .primary-button {
-    background: #aed8b6;
-    color: #172a21;
-  }
-  .export-button:hover,
-  .primary-button:hover {
-    background: #c7e7c8;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #111823;
+  --panel: #1c2635;
+  --ink: #e6edf8;
+  --muted: #bfcbdd;
+  --soft: #aabbd2;
+  --line: #38465c;
+  --faint: #233045;
+  --brand: #8dbbff;
+  --brand-soft: #293e60;
+  --gain: #65dba8;
+  --gold: #f3bd6d;
+  --loss: #ff998f;
+  --loss-soft: #432f35;
+  --activity: #5ed5df;
+  --overnight: #f2cb71;
+  --margin: #c0a0ff;
+  --grid: #354255;
+  --action: #a9caff;
+  --action-text: #152944;
+  --action-hover: #c6dbff;
+  --focus: #9bcaff;
+  --rail: #101b2c;
 }
 @media print {
   .rail,
@@ -1495,4 +1502,102 @@ dialog select {
   .topbar .quiet-button {
     width: 32px;
   }
+}
+
+.theme-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+}
+.theme-picker .icon {
+  position: absolute;
+  left: 8px;
+  width: 15px;
+  pointer-events: none;
+}
+.theme-picker select {
+  min-height: 32px;
+  padding: 0 4px 0 27px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--ink);
+}
+.rail {
+  overflow-y: auto;
+}
+.chart .track-title {
+  fill: var(--ink);
+  font-weight: 650;
+  font-size: 11px;
+}
+@media (max-width: 610px) {
+  .topbar {
+    padding-inline: 9px;
+    gap: 5px;
+  }
+  .topbar .actions {
+    gap: 2px;
+  }
+  .topbar .actions button,
+  .topbar .mobile-menu,
+  .theme-picker select {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  .topbar .actions button {
+    width: 40px;
+    padding: 0;
+  }
+  .topbar .actions button span {
+    display: none;
+  }
+  .theme-picker select {
+    padding-right: 1px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+.session-picker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.session-picker input {
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+}
+.session-picker button {
+  min-width: 30px;
+  font-size: 19px;
+}
+#activity-reading details {
+  margin-top: 12px;
+}
+@media (max-width: 580px) {
+  .panel:has(.session-picker) .panel-header {
+    flex-wrap: wrap;
+  }
+}
+
+#content :is(h1, h2, h3) .atlas-term {
+  text-decoration-thickness: 1px;
+}
+#content h1 .atlas-term:not(:hover):not(:focus-visible) {
+  text-decoration: none;
+}
+
+/* A field definition can overlap the footer on phones. Keep the form actionable. */
+#settings .atlas-term-tip {
+  pointer-events: none;
 }

@@ -14,12 +14,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from lab import book_report, strategy_report
 from lab.portfolio import read_runs
 from lab.sheets import sheet_path
 
+from .activity import load_activity_file
 from .build import render_bundle
 from .inputs import equity_from_returns, parse_time, validate_bundle
 
@@ -163,13 +165,51 @@ def _stitch_book_days(older, newer):
     return pd.concat([older.drop(common), newer]).sort_index()
 
 
+def _position_activity(path, daily, bar):
+    """Recover whether a strategy held risk at any time in each scored UTC day."""
+    activity = pd.Series(index=daily.index, dtype=float)
+    if not path.is_file():
+        return activity, "Missing positions.parquet."
+    if bar not in BAR_SIZE:
+        return activity, "The source lacks a consistent position sampling interval."
+    try:
+        schema = pq.read_schema(path)
+        idx = (schema.pandas_metadata or {}).get("index_columns", [])
+        if len(idx) != 1 or not isinstance(idx[0], str) or not pa.types.is_timestamp(schema.field(idx[0]).type):
+            return activity, "The position file lacks a native timestamp index."
+        instruments = [field for field in schema if field.name != idx[0]]
+        if not instruments or not all(pa.types.is_integer(f.type) or pa.types.is_floating(f.type) for f in instruments):
+            return activity, "The position file lacks numeric per-instrument held weights."
+        start, stop = daily.index[0], daily.index[-1] + pd.Timedelta(days=1)
+        if schema.field(idx[0]).type.tz is None:
+            start, stop = start.tz_localize(None), stop.tz_localize(None)
+        held = pd.read_parquet(path, engine="pyarrow", filters=[
+            (idx[0], ">=", start.to_pydatetime()), (idx[0], "<", stop.to_pydatetime())])
+        held.index = pd.to_datetime(held.index, utc=True)
+        # Native saves exactly one snapshot at the first scored bar open each UTC day.
+        # Reindex by the exact instant. An extra, late or missing snapshot cannot certify flat.
+        held = held.loc[~held.index.normalize().duplicated(keep=False)]
+        values = held.reindex(pd.DatetimeIndex(daily["open"])).to_numpy(dtype=float, na_value=np.nan)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return activity, f"Cannot read native held weights from positions.parquet ({type(exc).__name__})."
+    finite = np.isfinite(values).all(axis=1)
+    exposed = (values != 0).any(axis=1)
+    # A daily rebalance executes at the next UTC boundary. Intraday runs can open
+    # and close risk between two saved snapshots, even when both snapshots are flat.
+    known = finite & (exposed | (bar == "D"))
+    activity.iloc[known] = exposed[known].astype(int)
+    basis = ("Held instrument weights at each UTC daily bar open." if bar == "D" else
+             "First observed bar open per UTC day. A flat intraday snapshot leaves session activity unknown.")
+    return activity, basis
+
+
 def _capital(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
         raise ValueError("opening capital must be a positive finite number")
     return value
 
 
-def _strategy(name, currency, capital, require_test):
+def _strategy(name, currency, capital, require_test, *, read_positions=False):
     _, train, valid, test_start = strategy_report.periods_of(name)
     directory = strategy_report.results_dir(name)
     chosen, variant, lock = _runs(directory, require_test)
@@ -211,6 +251,14 @@ def _strategy(name, currency, capital, require_test):
             zero_days = daily["total"].eq(0)
             partial = (daily["open"] != daily.index) | (daily["close"] + MS != daily.index + pd.Timedelta(days=1))
             source["partialUtcDays"] = [d.date().isoformat() for d in daily.index[partial]]
+            if read_positions:
+                engine_freq = (summary.get("engine") or {}).get("freq")
+                bar = summary.get("bar", engine_freq)
+                if engine_freq is not None and BAR_SIZE.get(engine_freq) != BAR_SIZE.get(bar):
+                    bar = None
+                daily["active"], basis = _position_activity(folder / "positions.parquet", daily, bar)
+                source["activityPositions"] = {"file": "positions.parquet", "basis": basis,
+                                               "knownUtcDays": int(daily["active"].count())}
             rows = _stitch_book_days(rows, daily)
         else:
             zero_days = frame["total"].groupby(frame.index.normalize()).sum().eq(0)
@@ -244,7 +292,7 @@ def _strategy(name, currency, capital, require_test):
     item["evidence"]["zeroDayBasis"] = ("A recorded zero is a source ledger value. The engine can record zero on a "
                                        "calendar day without a market quote. Quote coverage is unavailable.")
     if require_test:
-        return item, rows["total"]
+        return item, rows
     item["evidence"]["openingBasis"] = "Initial capital one millisecond before the first scored bar opens in UTC."
     # Label each bar by its last UTC millisecond so its P&L belongs to its source day.
     item["times"] = [int((rows.index[0] - EPOCH) // MS) - 1, *((rows["close"] - EPOCH) // MS).tolist()]
@@ -260,7 +308,7 @@ def _strategy(name, currency, capital, require_test):
         item["costs"] = {"currency": currency, field: expense}
         item["costModel"] = ("The saved cost column includes source execution charges and any borrow booked there. "
                              "The liquidation P&L column includes separate forced-exit effects.")
-    return item, rows["total"]
+    return item, rows
 
 
 def _bundle(title, series, description):
@@ -351,8 +399,8 @@ def _apply_calendar(series, active, calendar, session_dates, imported=False):
 
 def strategy_bundle(name, *, currency="INDEX", opening_capital=1.0, calendar=None, session_dates=None):
     """Export the frozen strategy. Read its test solely from the run named in its lock."""
-    item, net = _strategy(name, currency, _capital(opening_capital), require_test=False)
-    _apply_calendar([item], net.ne(0), calendar, session_dates)
+    item, bars = _strategy(name, currency, _capital(opening_capital), require_test=False)
+    _apply_calendar([item], bars["total"].ne(0), calendar, session_dates)
     return _bundle(name, [item], "Native strategy report from saved net P&L.")
 
 
@@ -383,9 +431,62 @@ def _imported(name, file, family, currency, opening_date):
     return item, net
 
 
+def _book_activity(book, days, positions, sidecar, output):
+    book["notes"].append("The book weights allocate risk among strategies. The construction saves no executable "
+                         "book positions, broker closing quantities or overnight margin requirements.")
+    if sidecar is not None:
+        # A broker can use a different close and session date. Keep all supplied gaps
+        # independent of both the UTC bar calendar and the native position snapshots.
+        history = load_activity_file(sidecar, output=output)
+        member_count = len(book["holdings"])
+        for row in history["rows"]:
+            if any(row[key] is not None and row[key] > member_count for key in ("active", "overnight")):
+                raise ValueError(f"{row['date']}: activity count exceeds the {member_count} strategies in the book")
+        book["activity"] = history
+        book["evidence"]["activityFile"] = Path(sidecar).name
+        return
+
+    if positions:
+        # Requiring all sleeves preserves the distinction between zero and unknown.
+        counts = pd.DataFrame(positions).reindex(days).sum(axis=1, min_count=len(book["holdings"]))
+        # Use the book's declared UTC calendar. Missing expected days have unknown
+        # activity; an off-session P&L mark is not an extra trading session.
+        if "sessionDates" in book:
+            first, last = days[0].date().isoformat(), days[-1].date().isoformat()
+            sessions = pd.to_datetime([d for d in book["sessionDates"] if first <= d <= last], utc=True)
+        else:
+            sessions = pd.date_range(days[0], days[-1], freq="D")
+        counts = counts.reindex(sessions)
+        if counts.notna().any():
+            rows = []
+            for day, count in counts.items():
+                row = {"date": day.date().isoformat()}
+                if pd.notna(count):
+                    row["active"] = int(count)
+                else:
+                    row["gaps"] = {"active": "Incomplete held-position evidence across book members."}
+                rows.append(row)
+            book["activity"] = {"source": "Saved native strategy weights in positions.parquet, on UTC sessions.",
+                                "description": "Each strategy with a nonzero held instrument weight counts once. "
+                                               "Daily bar opens establish activity for the modelled session. "
+                                               "A flat intraday opening snapshot leaves the session count unknown.",
+                                "timeZone": "UTC", "rows": rows}
+            book["notes"].append("Active counts require position evidence for every strategy on that UTC day. "
+                                 "Use --activity for broker sessions, overnight counts or USD requirements.")
+            return
+        reason = "The selected runs lack enough dated held positions to count every strategy on a common day."
+    else:
+        reason = "The imported contribution files supply P&L without dated held positions."
+    book["notes"].append(f"{reason} Supply --activity with a dated portfolio snapshot CSV or activity JSON file.")
+
+
 def book_bundle(name, strategies=(), imports=(), *, currency=None, opening_date=None, opening_capital=None,
-                calendar=None, session_dates=None):
-    """Export construct_compute's full all-candidate book and its standalone comparison series."""
+                calendar=None, session_dates=None, activity=None, output=None):
+    """Export the all-candidate book. activity accepts a portfolio JSON sidecar or daily CSV.
+
+    Pass the planned HTML output path to protect the sidecar and its referenced files.
+    Without a sidecar, native held positions can establish strategy activity on UTC sessions.
+    """
     if not isinstance(currency, str) or not currency.strip():
         raise ValueError("supply --currency for the common, already converted capital basis of every input")
     if imports and (opening_date is None or opening_capital is None):
@@ -397,9 +498,13 @@ def book_bundle(name, strategies=(), imports=(), *, currency=None, opening_date=
     names = desk + [entry[0] for entry in imports]
     if len(names) < 2 or len(set(names + [name])) != len(names) + 1:
         raise ValueError("a book requires at least two distinct strategy names and a separate portfolio name")
-    members, nets, families = [], {}, {}
+    members, nets, families, positions = [], {}, {}, {}
+    read_positions = activity is None and not imports
     for n in desk:
-        item, nets[n] = _strategy(n, currency, capital, require_test=True)
+        item, daily = _strategy(n, currency, capital, require_test=True, read_positions=read_positions)
+        nets[n] = daily["total"]
+        if read_positions:
+            positions[n] = daily["active"]
         families[n] = item.get("family", n)
         members.append(item)
     for n, path, family in imports:
@@ -446,4 +551,5 @@ def book_bundle(name, strategies=(), imports=(), *, currency=None, opening_date=
         item["assetClass"] = classes.pop() if len(classes) == 1 else "Multi-asset"
     series = [item, *members]
     _apply_calendar(series, scaled.ne(0).any(axis=1), calendar, session_dates, imported=bool(imports))
+    _book_activity(item, days, positions, activity, output)
     return _bundle(name, series, "Native all-candidate construction from common-currency net contributions.")

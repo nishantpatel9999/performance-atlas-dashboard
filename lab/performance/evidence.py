@@ -14,6 +14,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from statistics import fmean
 
+from .build import SCRIPTS
+
 
 ASSETS = Path(__file__).resolve().parent
 DAY_MS = 86_400_000
@@ -357,6 +359,22 @@ def _original_accounts(manifest, series, supplied, source):
     if match and "cost_pct_of_gross" in manifest.get("costs", {}):
         manifest["costs"]["denominator"] = blocks["costs"]["denominator"]
     _measured_exposure(manifest, series)
+    if "activity" in series:
+        ledger = series["activity"]
+        rows = ledger["rows"]
+        counts = [r["active"] for r in rows if r["active"] is not None]
+        peaks = {}
+        for row in rows:
+            value, basis = row["marginUsd"], row["marginBasis"]
+            if value is not None and (basis not in peaks or value > peaks[basis]["usd"]):
+                peaks[basis] = {"date": row["date"], "usd": value}
+        manifest["session_activity"] = {
+            "source": ledger["source"], "series_field": "activity.rows", "session_records": len(rows),
+            "active_count_observations": len(counts), "overnight_count_observations": sum(r["overnight"] is not None for r in rows),
+            "requirement_observations": sum(r["marginUsd"] is not None for r in rows),
+            "active_share_of_measured_sessions": fmean(n > 0 for n in counts) if counts else None,
+            "peak_requirement_by_basis": peaks,
+        }
 
 
 def _measured_exposure(manifest, series):
@@ -686,7 +704,7 @@ def build_manifest(html, series_id=None, source_manifest=None):
     # A report generated with different local code must use its matching checkout.
     # Checking full script tags avoids accepting an engine name quoted in an input.
     hashes = {}
-    for name in ("metrics.js", "details.js", "charts.js", "app.js"):
+    for name in ("theme.js", *SCRIPTS):
         data = (ASSETS / name).read_bytes()
         content = data.decode("utf-8").replace("\r\n", "\n")
         if "<script>\n" + content + "\n</script>" not in page:
@@ -694,6 +712,8 @@ def build_manifest(html, series_id=None, source_manifest=None):
         hashes[name] = _sha(data)
     hashes["evidence.py"] = _sha(Path(__file__).read_bytes())
     hashes["inputs.py"] = _sha((ASSETS / "inputs.py").read_bytes())
+    if series.get("activity") is not None:
+        hashes["activity.py"] = _sha((ASSETS / "activity.py").read_bytes())
     demo = _exact_demo(bundle, series)
     if demo:
         supplied = {**_demo_evidence(series, by_id), **supplied}

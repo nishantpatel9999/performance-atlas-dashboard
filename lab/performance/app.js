@@ -17,6 +17,7 @@
     rolling: ["Rolling metrics", "wave"],
     calendar: ["Calendar returns", "calendar"],
     trades: ["Trades and costs", "trades"],
+    activity: ["Activity and margin", "layers"],
     explorer: ["Metric explorer", "strategy"],
     compare: ["Comparisons", "compare"],
     evidence: ["Evidence and methods", "book"],
@@ -172,7 +173,7 @@
     `<div class="empty"><div><strong>${escape(title)}</strong>${escape(reason)}</div></div>`;
   const chart = (id) => `<div class="chart" id="${id}"></div>`;
   const legend = (items) =>
-    `<div class="chart-legend">${items.map(([label, color]) => `<span class="legend-item"><i class="legend-swatch" style="background:${color}"></i>${escape(label)}</span>`).join("")}</div>`;
+    `<div class="chart-legend">${items.map(([label, color, dashed]) => `<span class="legend-item"><i class="legend-swatch" style="background:${dashed ? "repeating-linear-gradient(90deg," + color + " 0 4px,transparent 4px 6px)" : color}"></i>${escape(label)}</span>`).join("")}</div>`;
   const statList = (rows) =>
     `<dl class="metric-list">${rows.map(([k, v, title]) => `<div${title ? ` title="${escape(title)}"` : ""}><dt>${escape(k)}</dt><dd class="${v === "—" ? "missing" : ""}">${escape(v)}</dd></div>`).join("")}</dl>`;
   function table(headers, rows) {
@@ -188,7 +189,12 @@
   function barPlot(id, data, opts) {
     plots.push(() => C.bars($(id), data, opts));
   }
-  const chartColors = ["var(--brand)", "var(--gold)", "var(--loss)", "#5a78a1"];
+  const chartColors = [
+    "var(--brand)",
+    "var(--gold)",
+    "var(--loss)",
+    "var(--activity)",
+  ];
   function periodText(s) {
     return `${periodUnit(s)} closes · ${s.periodsPerYear} periods per year`;
   }
@@ -225,7 +231,7 @@
       "Loss from the running equity high.",
       legend([
         ["Underwater", "var(--loss)"],
-        ["Worst to date", "var(--gold)"],
+        ["Worst to date", "var(--gold)", true],
       ]) + chart(id),
       large ? "" : linkView("drawdowns", "Explore"),
     );
@@ -302,6 +308,7 @@
         label: String(y.year),
         short: String(y.year).slice(compact ? 2 : 0),
         value: y.return,
+        color: y.return < 0 ? "var(--loss)" : "var(--gain)",
         detail: `${pct(y.return, 2, true)} · ${y.complete ? "Full year" : "Partial coverage"}`,
       })),
       {
@@ -317,7 +324,7 @@
         ? "Most recent calendar years."
         : "Return within each observed calendar year.",
       legend([
-        ["Gain", "var(--brand)"],
+        ["Gain", "var(--gain)"],
         ["Loss", "var(--loss)"],
       ]) +
         chart(id) +
@@ -340,7 +347,7 @@
     "Nov",
     "Dec",
   ];
-  function heatmap(a, compact = false) {
+  function heatmap(a, compact = false, amounts = null) {
     let years = [...new Set(a.months.map((m) => m.year))].reverse();
     if (compact) years = years.slice(0, 4);
     if (!years.length)
@@ -349,7 +356,7 @@
         "Supply at least two dated equity marks.",
       );
     const months = new Map(
-      a.months.map((m) => [m.year + "-" + m.month, m.return]),
+      (amounts?.months || a.months).map((m) => [m.year + "-" + m.month, m]),
     );
     let max = 0;
     for (const m of a.months)
@@ -359,21 +366,37 @@
         (y) =>
           `<tr><th scope="row">${y}</th>${monthNames
             .map((name, j) => {
-              const v = months.get(y + "-" + (j + 1));
+              const month = months.get(y + "-" + (j + 1)),
+                v = month?.return;
               if (!Number.isFinite(v))
                 return '<td aria-label="No observation">·</td>';
-              const color = v < 0 ? "var(--loss)" : "var(--brand)",
+              const color = v < 0 ? "var(--loss)" : "var(--gain)",
                 strength =
                   v === 0
                     ? 0
-                    : Math.round(15 + 55 * Math.sqrt(Math.abs(v) / (max || 1)));
-              const title = `${name} ${y} · ${pct(v, 2, true)}`;
-              return `<td data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))">${compact ? (v === 0 ? "0" : v < 0 ? "−" : "+") : pct(v, 1)}</td>`;
+                    : Math.round(10 + 34 * Math.sqrt(Math.abs(v) / (max || 1)));
+              const amount =
+                amounts && Number.isFinite(month.amount)
+                  ? decimal(month.amount, 2)
+                  : null;
+              const title = escape(
+                `${name} ${y} · ${pct(v, 2, true)}` +
+                  (amount === null ? "" : ` · ${amount} ${amounts.unit}`),
+              );
+              const label = compact
+                ? v === 0
+                  ? "0"
+                  : v < 0
+                    ? "−"
+                    : "+"
+                : pct(v, 1);
+              return `<td data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))">${label}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
             })
             .join("")}</tr>`,
       )
       .join("");
-    return `<div class="heat-wrap"><table class="heat"><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col" title="${m}">${compact ? m[0] : m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--brand)"></i><span>Gain</span></div>`;
+    const layout = amounts ? ' style="table-layout:auto"' : "";
+    return `<div class="heat-wrap"><table class="heat"${layout}><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col" title="${m}">${compact ? m[0] : m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
   }
   function profile(a, s) {
     const m = a.summary,
@@ -381,7 +404,11 @@
         a.returns.values,
         Math.expm1(Math.log1p(state.target) / s.periodsPerYear),
       );
-    const gain = m.endEquity - m.startEquity;
+    const measures = D.returnMeasures(a);
+    const gain =
+      Number.isFinite(m.startEquity) && Number.isFinite(m.endEquity)
+        ? m.endEquity - m.startEquity
+        : null;
     return (
       sectionTitle("Performance statistics", periodText(s)) +
       `<div class="grid-three">` +
@@ -390,6 +417,11 @@
         "",
         statList([
           ["Total return", pct(m.totalReturn, 2)],
+          [
+            "Cumulative log return",
+            decimal(measures.cumulativeLogReturn, 3),
+            "ln(closing equity / opening equity). Both equity values must be positive.",
+          ],
           ["Compound annual growth (CAGR)", pct(m.cagr, 2)],
           ["Mean full-year return", pct(m.meanYearReturn, 2)],
           ["Change in equity", cur(s, gain, 2)],
@@ -399,7 +431,7 @@
       ) +
       panel(
         "Risk-adjusted returns",
-        "",
+        "Gain-to-pain = sum of observed returns / absolute sum of negative returns.",
         statList([
           ["Sharpe ratio", decimal(m.sharpe)],
           ["Sortino ratio", decimal(m.sortino)],
@@ -408,6 +440,7 @@
           ["Annual volatility", pct(m.volatility, 2)],
           ["Annual downside deviation", pct(m.downside, 2)],
           ["Omega ratio", decimal(tails.omega)],
+          ["Gain-to-pain ratio", decimal(measures.gainToPain)],
         ]),
       ) +
       panel(
@@ -436,7 +469,11 @@
         short: formatter((b.lower + b.upper) / 2),
         value: b.count,
         detail: `${count(b.count)} observations`,
-        color: negativeColors && b.upper <= 0 ? "var(--loss)" : "var(--brand)",
+        color: negativeColors
+          ? b.upper <= 0
+            ? "var(--loss)"
+            : "var(--gain)"
+          : "var(--brand)",
       })),
       { title: "Distribution", height: 191, format: count, labelWidth: 63 },
     );
@@ -451,7 +488,7 @@
   }
 
   function rollingControl() {
-    return `<label class="settings-control">Window <select class="input-select" id="rolling-window">${[3, 6, 12, 24, 36].map((n) => `<option value="${n}" ${n === state.months ? "selected" : ""}>${n} months</option>`).join("")}</select></label>`;
+    return `<label class="settings-control">Window <select class="input-select" id="rolling-window">${[3, 6, 12, 18, 24, 36].map((n) => `<option value="${n}" ${n === state.months ? "selected" : ""}>${n} months</option>`).join("")}</select></label>`;
   }
   function rollingPanel(s, a, key, title, desc, id) {
     const isPct = ["maxDrawdown", "return", "volatility"].includes(key);
@@ -529,7 +566,42 @@
     );
   }
   function rollingView(s, a) {
+    const opts = options(s);
+    const rows = [6, 12, 18].map((months) => {
+      const sampled =
+        months === state.months ? a : analyze(s, { ...opts, months });
+      const r = D.profitableWindows(sampled, months);
+      const note =
+        r.reason ||
+        (r.gapped
+          ? count(r.gapped) + " crossed a missing return interval."
+          : "—");
+      return [
+        months + " months",
+        count(r.profitable) + " / " + count(r.eligible),
+        pct(r.rate, 1),
+        count(r.excluded),
+        escape(note),
+      ];
+    });
+    const coverage = panel(
+      "Profitable rolling windows",
+      "Each eligible close supplies one overlapping historical window. Flat windows count in the denominator. Coverage requires continuous sampled returns. Monthly windows need matching observation days or two month-end closes.",
+      table(
+        [
+          "Window",
+          "Profitable / eligible",
+          "Profitable share",
+          "Excluded closes",
+          "Coverage note",
+        ],
+        rows,
+      ),
+      "",
+      "standalone",
+    );
     return (
+      coverage +
       `<div class="toolbar">${rollingControl()}<span>Each point uses a complete trailing window.</span></div><div class="grid-two">` +
       rollingPanel(
         s,
@@ -583,6 +655,13 @@
     );
   }
   function calendarView(s, a) {
+    const amounts = D.monthlyAmounts(s, a);
+    const amountNote =
+      s.currency === "INDEX" || amounts.unit !== s.currency
+        ? "The second line shows the change in " + amounts.unit + "."
+        : "The second line shows the change in " +
+          amounts.unit +
+          " equity. It measures P&L for a funded account without external cash flows.";
     const rows = [...a.years]
       .reverse()
       .map((y) => [
@@ -606,8 +685,10 @@
       )}</div>` +
       panel(
         "Monthly return heatmap",
-        "Each cell shows the change in equity across the observed month. A dot marks missing data.",
-        heatmap(a),
+        "The first line shows the observed monthly return. " +
+          amountNote +
+          " A dot marks missing data.",
+        heatmap(a, false, amounts),
         "",
         "standalone",
       ) +
@@ -646,27 +727,56 @@
   };
   function tradesView(s, a) {
     const r = D.trades(s, bounds(s));
-    const amount = (v) => cur(s, v, 2);
+    const unit = s.currency === "INDEX" ? "index points" : s.currency;
+    const amount = (v) =>
+      Number.isFinite(v) ? decimal(v, 2) + " " + unit : "—";
     const hasLedger = Array.isArray(s.trades);
-    const n = hasLedger ? count(r.count) : "—";
     const why =
       r.reason || "Supply dated net profit or loss for each closed trade.";
+    const fields = [
+      ["Closed trades", "count", count],
+      ["Wins", "wins", count],
+      ["Losses", "losses", count],
+      ["Flats", "flat", count],
+      ["Win rate", "winRate", pct],
+      ["Net P&L", "netPnl", amount],
+      ["Gross profit", "grossProfit", amount],
+      ["Gross loss", "grossLoss", amount],
+      ["Profit factor", "profitFactor", decimal],
+      ["Expectancy per trade", "expectancy", amount],
+      ["Average winner", "avgWin", amount],
+      ["Average loser", "avgLoss", amount],
+      ["Largest winner", "largestWinner", amount],
+      ["Largest loser", "largestLoser", amount],
+      ["Largest winner / gross profit", "largestWinnerShare", pct],
+      ["Largest loss / gross loss", "largestLoserShare", pct],
+    ];
+    const columns = r.breakdown
+      ? [r.breakdown.all, r.breakdown.long, r.breakdown.short]
+      : [];
+    const tradeRows = fields.map(([label, key, format]) => [
+      label,
+      ...columns.map((column) => {
+        const value = column[key],
+          display = escape(format(value));
+        return format === amount
+          ? `<span class="${valClass(value)}">${display}</span>`
+          : display;
+      }),
+    ]);
+    const unclassified = r.breakdown?.unclassifiedCount || 0;
+    const sideNote = unclassified
+      ? ` All includes ${count(unclassified)} ${unclassified === 1 ? "trade" : "trades"} with another or missing side.`
+      : "";
     const summary = panel(
-      "Closed trades",
-      hasLedger
-        ? "Trades that closed inside the selected dates."
-        : "Dated trades are unavailable.",
-      statList([
-        ["Trades", n],
-        [
-          "Wins / losses / flat",
-          hasLedger ? [r.wins, r.losses, r.flat].map(count).join(" / ") : "—",
-        ],
-        ["Win rate", pct(r.winRate, 2)],
-        ["Profit factor", decimal(r.profitFactor)],
-        ["Expectancy per trade", amount(r.expectancy)],
-        ["Average win / loss", amount(r.avgWin) + " / " + amount(r.avgLoss)],
-      ]),
+      "Closed trades by side",
+      "Gross profit and gross loss sum the recorded winning and losing net trade outcomes in each column." +
+        sideNote,
+      r.breakdown
+        ? table(["Measure", "All", "Long", "Short"], tradeRows)
+        : empty("Trade ledger unavailable", why),
+      "",
+      "standalone",
     );
     const sizes = panel(
       "Trade outcomes",
@@ -675,18 +785,48 @@
         ? distribution(r.bins, "trade-hist", (v) => decimal(v, 0), true)
         : empty("Trade distribution unavailable", why),
     );
-    const sides = Object.entries(r.bySide || {}).map(([side, v]) => [
-      escape(niceKey(side)),
-      count(v.count),
-      pct(v.winRate),
-      amount(v.pnl),
-    ]);
-    const closed = (s.trades || []).filter(
-      (t) =>
-        Number.isFinite(t.holdingHours) &&
-        t.time >= bounds(s).start &&
-        t.time <= bounds(s).end,
+    const recent = r.outcomes.slice(-120);
+    if (recent.length) {
+      const bars = recent.map((trade, i) => {
+        const number = r.count - recent.length + i + 1;
+        return {
+          label: "Trade " + number,
+          short: String(number),
+          value: trade.pnl,
+          detail:
+            "Trade " +
+            number +
+            " · " +
+            new Date(trade.time).toISOString() +
+            " · " +
+            trade.side +
+            " · " +
+            amount(trade.pnl),
+          color:
+            trade.pnl > 0
+              ? "var(--gain)"
+              : trade.pnl < 0
+                ? "var(--loss)"
+                : "var(--muted)",
+        };
+      });
+      barPlot("trade-chronology", bars, {
+        title: "Net trade P&L in closing order",
+        format: (v) => decimal(v, 0),
+        height: 190,
+      });
+    }
+    const chronology = panel(
+      "Trade P&L in closing order",
+      `Each bar is one closed trade in ${unit}.` +
+        (recent.length < r.count
+          ? ` Showing the latest ${count(recent.length)} of ${count(r.count)} selected trades.`
+          : ""),
+      recent.length
+        ? chart("trade-chronology")
+        : empty("Trade history unavailable", why),
     );
+    const closed = r.outcomes.filter((t) => Number.isFinite(t.holdingHours));
     const holdingBins = [
       { label: "<1h", min: 0, max: 1 },
       { label: "1–8h", min: 1, max: 8 },
@@ -763,13 +903,13 @@
       (s.evidence?.tradeCoverage === "partial"
         ? `<p class="notice">${escape(r.reason)}</p>`
         : "") +
-      `<div class="grid-hero">${sizes}${summary}</div><div class="grid-two">` +
+      summary +
+      `<div class="grid-two">${chronology}${sizes}</div><div class="grid-two">` +
       panel(
         "Trade quality",
         "Calculated from the dated ledger.",
         statList([
           ["Average win / |average loss|", decimal(r.payoff)],
-          ["Largest gain / loss", amount(r.best) + " / " + amount(r.worst)],
           [
             "Longest winning / losing streak",
             hasLedger ? count(r.winStreak) + " / " + count(r.lossStreak) : "—",
@@ -780,10 +920,7 @@
               ? decimal(r.meanHoldingHours, 1) + " hours"
               : "—",
           ],
-        ]) +
-          (sides.length
-            ? table(["Side", "Trades", "Win rate", "Net P&L"], sides)
-            : ""),
+        ]),
       ) +
       durations +
       "</div>" +
@@ -852,51 +989,291 @@
       })
       .join("")}</ul>`;
   }
-  function matrixPanel(s) {
-    const allMembers =
-      s.kind === "portfolio" && s.holdings?.length
-        ? new Set(s.holdings.filter((h) => h.weight !== 0).map((h) => h.id))
-        : null;
-    const list = all.filter(
-      (k) => k.kind === "strategy" && (!allMembers || allMembers.has(k.id)),
-    );
-    if (list.length < 2)
-      return panel(
-        "Strategy correlations",
-        "",
-        empty(
-          "Two strategy histories are required",
-          "Supply overlapping strategy return histories.",
-        ),
-        "",
-        "standalone",
+  function correlationLabel(r) {
+    if (!Number.isFinite(r)) return "—";
+    const magnitude = decimal(Math.abs(r));
+    if (magnitude === "0.00") return magnitude;
+    return (r < 0 ? "−" : "+") + magnitude;
+  }
+
+  function correlationGrid(matrix, focus) {
+    const { names, values, counts, diagnostics } = matrix;
+    function heading(name, i, axis) {
+      return `<th scope="${axis}"${i === focus ? " data-focused" : ""}>${escape(name)}</th>`;
+    }
+    const header = names.map((name, i) => heading(name, i, "col")).join("");
+    const grid = values
+      .map((row, i) => {
+        const cells = row
+          .map((r, j) => {
+            const d = diagnostics[i][j],
+              n = counts[i][j];
+            const color = r < 0 ? "var(--loss)" : "var(--brand)";
+            const fill = Number.isFinite(r)
+              ? ` style="background:color-mix(in srgb, ${color} ${Math.round(38 * Math.abs(r))}%, var(--panel))"`
+              : "";
+            const value = correlationLabel(r);
+            const description = [
+              names[i] + " / " + names[j],
+              value,
+              n + " shared intervals",
+              d.reason,
+              d.note,
+            ]
+              .filter(Boolean)
+              .join(". ");
+            return `<td${i === focus || j === focus ? " data-focused" : ""} aria-label="${escape(description)}"><span class="corr-value"${fill}>${value}<br><small>N ${count(n)}</small></span></td>`;
+          })
+          .join("");
+        return `<tr>${heading(names[i], i, "row")}${cells}</tr>`;
+      })
+      .join("");
+    return `<div class="table-wrap corr-scroll" role="region" aria-label="Scrollable correlation matrix" tabindex="0">
+      <table class="corr-grid" aria-label="Strategy return correlations"><thead><tr><th scope="col">Strategy</th>${header}</tr></thead><tbody>${grid}</tbody></table></div>`;
+  }
+
+  function focusedCorrelations(matrix, focus) {
+    const { names, values, counts, diagnostics } = matrix;
+    const peers = names
+      .map((name, j) => {
+        if (j === focus) return "";
+        const d = diagnostics[focus][j];
+        const span =
+          d.start == null ? "" : `${date(d.start)} – ${date(d.end)}.`;
+        const detail = [d.reason, span, d.note].filter(Boolean).join(" ");
+        return `<tr><th scope="row">${escape(name)}</th><td>${correlationLabel(values[focus][j])}</td><td>${count(counts[focus][j])}</td><td>${escape(detail)}</td></tr>`;
+      })
+      .join("");
+    const title = "Comparisons for " + names[focus];
+    return `<h3 class="subheading corr-detail-title" aria-live="polite">${escape(title)}</h3>
+      <div class="table-wrap" role="region" aria-label="Scrollable focused comparisons" tabindex="0"><table class="corr-detail" aria-label="${escape(title)}"><thead><tr><th scope="col">Peer</th><th scope="col">Correlation</th><th scope="col">Shared intervals</th><th scope="col">Matched dates and limits</th></tr></thead><tbody>${peers}</tbody></table></div>`;
+  }
+
+  function highlightCorrelation(grid, index, active) {
+    const rows = grid.tBodies[0].rows;
+    grid.tHead.rows[0].cells[index + 1].toggleAttribute("data-focused", active);
+    for (const cell of rows[index].cells)
+      cell.toggleAttribute("data-focused", active);
+    for (const row of rows)
+      row.cells[index + 1].toggleAttribute("data-focused", active);
+  }
+
+  function revealCorrelation(grid, index) {
+    const region = grid.parentElement,
+      view = region.getBoundingClientRect();
+    const diagonal =
+      grid.tBodies[0].rows[index].cells[index + 1].getBoundingClientRect();
+    const corner = grid.tHead.rows[0].cells[0].getBoundingClientRect();
+    if (
+      diagonal.left < view.left + corner.width ||
+      diagonal.right > view.left + region.clientWidth
+    ) {
+      region.scrollLeft += diagonal.left - view.left - corner.width - 4;
+    }
+    if (
+      diagonal.top < view.top + corner.height ||
+      diagonal.bottom > view.top + region.clientHeight
+    ) {
+      region.scrollTop += diagonal.top - view.top - corner.height - 4;
+    }
+  }
+
+  function mountCorrelationMatrix(root, s) {
+    // Chart callbacks also run on resize. Keep existing controls and keyboard focus.
+    if (!root || root.childElementCount) return;
+    const defaultSize = 6;
+    const anchor = s.kind === "strategy" ? s.id : null;
+    const strategies = all.filter((k) => k.kind === "strategy");
+    const scopes = new Map();
+    function addScope(portfolio) {
+      const families = D.strategyGroups(strategies, { portfolio });
+      const ids = families.flatMap((f) => f.ids);
+      if (portfolio && anchor && !ids.includes(anchor)) return;
+      scopes.set(portfolio?.id ?? "", { portfolio, families, ids });
+    }
+    addScope();
+    if (s.kind === "portfolio") addScope(s);
+    else if (anchor)
+      all.filter((k) => k.kind === "portfolio").forEach(addScope);
+    if (state.correlation?.owner !== s.id) {
+      // A strategy can belong to several books. Let the reader choose between those books.
+      const group = scopes.size === 2 ? Array.from(scopes.keys())[1] : "";
+      state.correlation = { owner: s.id, group, focus: anchor };
+      state.matrixIds = null;
+      state.matrixOpen = false;
+    }
+    const context = state.correlation;
+    const range = bounds(s);
+    let matrix;
+    function draw() {
+      const { portfolio, ids, families } = scopes.get(context.group);
+      const pinned = anchor ? [anchor] : [];
+      const choices = pinned.concat(
+        (state.matrixIds ?? ids).filter((id) => id !== anchor),
       );
-    const chosen = state.matrixIds ?? list.slice(0, 6).map((k) => k.id);
-    const matrix = D.correlationMatrix(all, {
-      ...options(s),
-      ids: chosen,
-      portfolio: allMembers ? s : undefined,
+      const chosen =
+        state.matrixIds == null ? choices.slice(0, defaultSize) : choices;
+      const chosenSet = new Set(chosen);
+      if (!chosen.includes(context.focus)) context.focus = chosen[0];
+      const groups = Array.from(scopes, ([id, group]) => {
+        const name = group.portfolio
+          ? "Portfolio members · " + group.portfolio.name
+          : "All report strategies";
+        return `<option value="${escape(id)}" ${activeClass(id, context.group)}>${escape(name)} (${group.ids.length})</option>`;
+      }).join("");
+      const groupField = `<div><label for="correlation-group">Comparison group</label>
+        <select class="input-select" id="correlation-group" ${scopes.size === 1 ? "disabled" : ""}>${groups}</select></div>`;
+      let basis = "All strategy histories in this report.";
+      if (portfolio)
+        basis = Array.isArray(portfolio.holdings)
+          ? "Membership uses the reported nonzero holdings with strategy histories."
+          : portfolio.evidence?.attribution?.basis === "funded_equity"
+            ? "Membership uses the declared funded strategies with histories in this report."
+            : "The source did not identify portfolio members.";
+      const note = `<p class="explain">${basis} Return closes from ${date(range.start)} through ${date(range.end)} UTC.</p>`;
+      let picker = "";
+      if (ids.length > 1) {
+        const fields = families
+          .map((f) => {
+            const boxes = f.ids
+              .map((id) => {
+                const checked = chosenSet.has(id);
+                return `<label><input type="checkbox" data-matrix="${escape(id)}" ${checked ? "checked" : ""} ${id === anchor ? "disabled" : ""}> ${escape(byId.get(id).name)}</label>`;
+              })
+              .join("");
+            return `<fieldset><legend>${escape(f.family)}</legend><div class="checkbox-list">${boxes}</div></fieldset>`;
+          })
+          .join("");
+        picker = `<div class="corr-actions"><button type="button" class="small-button" id="correlation-show-all" ${chosen.length === ids.length ? "disabled" : ""}>Show all strategies</button>
+          <button type="button" class="small-button" id="correlation-reset" ${state.matrixIds == null ? "disabled" : ""}>Reset selection</button></div>
+          <details class="picker corr-picker" ${state.matrixOpen ? "open" : ""}><summary>Choose strategies (${count(chosen.length)} of ${count(ids.length)})</summary>
+          ${anchor ? '<p class="explain">The active strategy stays selected.</p>' : ""}${fields}</details>`;
+      }
+      if (chosen.length < 2) {
+        matrix = null;
+        context.cache = null;
+        const reason =
+          ids.length === 0
+            ? portfolio
+              ? "No portfolio member has a strategy history in this group."
+              : "This report has no strategy histories."
+            : ids.length === 1
+              ? "This group contains only one strategy history. A pair needs two different strategies."
+              : "Select at least two strategies from the group.";
+        root.innerHTML =
+          groupField + note + picker + empty("No strategy pair", reason);
+        return;
+      }
+      const key = JSON.stringify([
+        context.group,
+        range.start,
+        range.end,
+        chosen,
+      ]);
+      if (context.cache?.key !== key) {
+        context.cache = {
+          key,
+          matrix: D.correlationMatrix(strategies, {
+            ...range,
+            ids: chosen,
+            portfolio,
+            diagnostics: true,
+          }),
+        };
+      }
+      matrix = context.cache.matrix;
+      const option = (id) =>
+        `<option value="${escape(id)}" ${activeClass(id, context.focus)}>${escape(byId.get(id).name)}</option>`;
+      const others = ids.filter((id) => !chosenSet.has(id));
+      let focusOptions = chosen.map(option).join("");
+      if (others.length)
+        focusOptions = `<optgroup label="Selected strategies">${focusOptions}</optgroup>
+        <optgroup label="Focus and show all peers">${others.map(option).join("")}</optgroup>`;
+      const focus = matrix.ids.indexOf(context.focus);
+      const scale = legend([
+        ["−1 inverse", "var(--loss)"],
+        ["0 no linear relation", "var(--line)"],
+        ["+1 positive", "var(--brand)"],
+      ]);
+      root.innerHTML = `<div class="corr-controls">${groupField}<div><label for="correlation-focus">Focus strategy</label>
+        <select class="input-select" id="correlation-focus" aria-controls="correlation-tables">${focusOptions}</select></div></div>
+        ${note}${picker}${scale}<p class="explain">N counts intervals with matching opening and closing marks. Both strategies must use the same currency, frequency and periods per year.</p>
+        ${chosen.length > defaultSize ? '<p class="explain">Scroll across and down to explore the full matrix.</p>' : ""}
+        <div id="correlation-tables">${correlationGrid(matrix, focus)}<div id="correlation-peers">${focusedCorrelations(matrix, focus)}</div></div>`;
+      if (focus > 0 && chosen.length > defaultSize)
+        revealCorrelation(root.querySelector(".corr-grid"), focus);
+    }
+    root.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (
+        !button ||
+        !["correlation-show-all", "correlation-reset"].includes(button.id)
+      )
+        return;
+      state.matrixIds =
+        button.id === "correlation-show-all"
+          ? scopes.get(context.group).ids
+          : null;
+      draw();
+      root.querySelector("#correlation-focus")?.focus({ preventScroll: true });
     });
-    const picker = `<details class="picker" ${state.matrixOpen ? "open" : ""}><summary>Choose strategies (${chosen.length})</summary><div class="checkbox-list">${list.map((k) => `<label><input type="checkbox" data-matrix="${escape(k.id)}" ${chosen.includes(k.id) ? "checked" : chosen.length >= 12 ? "disabled" : ""}> ${escape(k.name)}</label>`).join("")}</div></details>`;
-    const rows = matrix.values.map((row, i) => [
-      escape(matrix.names[i]),
-      ...row.map((v, j) => {
-        if (!Number.isFinite(v))
-          return `<span title="${count(matrix.counts[i][j])} matched intervals">—</span>`;
-        const color = v < 0 ? "var(--gold)" : "var(--brand)";
-        return `<span class="corr-value" title="${count(matrix.counts[i][j])} matched intervals" style="background:color-mix(in srgb, ${color} ${Math.round(8 + 34 * Math.abs(v))}%, var(--panel))">${decimal(v)}</span>`;
-      }),
-    ]);
+    root.addEventListener("change", (event) => {
+      const el = event.target;
+      if (el.id === "correlation-focus") {
+        const previous = matrix.ids.indexOf(context.focus);
+        const next = matrix.ids.indexOf(el.value);
+        context.focus = el.value;
+        if (next < 0) {
+          state.matrixIds = scopes.get(context.group).ids;
+          draw();
+          root
+            .querySelector("#correlation-focus")
+            .focus({ preventScroll: true });
+        } else if (next !== previous) {
+          const grid = root.querySelector(".corr-grid");
+          highlightCorrelation(grid, previous, false);
+          highlightCorrelation(grid, next, true);
+          root.querySelector("#correlation-peers").innerHTML =
+            focusedCorrelations(matrix, next);
+          revealCorrelation(grid, next);
+        }
+      } else if (el.id === "correlation-group") {
+        context.group = el.value;
+        context.focus = anchor;
+        state.matrixIds = null;
+        state.matrixOpen = false;
+        draw();
+        root.querySelector("#correlation-group").focus({ preventScroll: true });
+      } else if (el.hasAttribute("data-matrix")) {
+        state.matrixIds = Array.from(
+          root.querySelectorAll("[data-matrix]:checked"),
+          (node) => node.dataset.matrix,
+        );
+        state.matrixOpen = true;
+        draw();
+        const replacement = Array.from(
+          root.querySelectorAll("[data-matrix]"),
+        ).find((node) => node.dataset.matrix === el.dataset.matrix);
+        replacement?.focus({ preventScroll: true });
+      }
+    });
+    root.addEventListener(
+      "toggle",
+      (event) => {
+        if (root.contains(event.target) && event.target.matches("details"))
+          state.matrixOpen = event.target.open;
+      },
+      true,
+    );
+    draw();
+  }
+
+  function matrixPanel(s) {
+    plots.push(() => mountCorrelationMatrix($("strategy-correlations"), s));
     return panel(
       "Strategy correlations",
-      "Pairwise correlation over matching intervals. Select up to 12 strategies.",
-      picker +
-        (matrix.ids.length
-          ? table(["Strategy", ...matrix.names], rows)
-          : empty(
-              "No strategies selected",
-              "Choose strategies above to build the matrix.",
-            )),
+      "Pearson correlation of sampled strategy returns.",
+      '<div id="strategy-correlations"></div>',
       "",
       "standalone",
     );
@@ -1151,7 +1528,7 @@
 
   function compareView(s) {
     return (
-      peerPanel(s) + scorecardPanel() + portfolioDetails(s) + matrixPanel(s)
+      matrixPanel(s) + peerPanel(s) + scorecardPanel() + portfolioDetails(s)
     );
   }
   function evidenceView(s, a) {
@@ -1473,6 +1850,303 @@
     );
   }
 
+  const usd = (v) =>
+    Number.isFinite(v) ? "$" + decimal(v, 2) : "Not recorded";
+  const marginKinds = {
+    broker_requirement: ["Broker overnight margin", "var(--margin)", ""],
+    required_equity: ["Broker required equity", "var(--gold)", ""],
+    schedule_estimate: ["Modeled overnight margin", "var(--margin)", "5 3"],
+  };
+  function marginKind(basis) {
+    return (
+      (Object.hasOwn(marginKinds, basis) && marginKinds[basis]) || [
+        "Overnight requirement",
+        "var(--margin)",
+        "",
+      ]
+    );
+  }
+  // Each record uses the trading date assigned by the source, including overnight sessions.
+  function sessionRange(s) {
+    const zone = s.activity.timeZone;
+    const lastDate = sessionDate(s.times.at(-1), zone);
+    // An overnight market may assign a different session label to its actual closing instant.
+    const to =
+      state.range === "Custom"
+        ? iso(state.to)
+        : [lastDate, s.activity.rows.at(-1)?.date || lastDate].sort()[1];
+    if (state.range === "Custom") return { from: iso(state.from), to };
+    if (state.range === "All") {
+      const firstDate = sessionDate(s.times[0], zone);
+      return {
+        from: [firstDate, s.activity.rows[0]?.date || firstDate].sort()[0],
+        to,
+      };
+    }
+    const end = Date.parse(to + "T00:00:00Z");
+    const from =
+      state.range === "YTD"
+        ? to.slice(0, 4) + "-01-01"
+        : iso(startOfPeriod(end, 12 * parseInt(state.range, 10)));
+    return { from, to };
+  }
+  function sessionRows(s) {
+    if (!s.activity) return [];
+    const { from, to } = sessionRange(s);
+    return s.activity.rows.filter((r) => r.date >= from && r.date <= to);
+  }
+  const sessionFormatters = new Map();
+  function sessionDate(t, zone) {
+    if (!zone || zone === "UTC") return iso(t);
+    if (!sessionFormatters.has(zone)) {
+      sessionFormatters.set(
+        zone,
+        new Intl.DateTimeFormat("en-CA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: zone,
+        }),
+      );
+    }
+    return sessionFormatters.get(zone).format(t);
+  }
+  function activityView(s) {
+    const rows = sessionRows(s);
+    if (!rows.length) {
+      return panel(
+        "Daily strategy activity and overnight margin",
+        "",
+        empty(
+          s.activity
+            ? "No daily records in this range"
+            : "Daily records unavailable",
+          s.activity
+            ? "Select dates covered by the session ledger."
+            : "Supply daily position records or session totals. Portfolio returns alone cannot identify open strategies or the overnight requirement.",
+        ),
+      );
+    }
+    const bases = new Set();
+    const peaks = new Map();
+    let peakActive = null,
+      peakOvernight = null,
+      peakLoad = null,
+      countKnown = 0,
+      amountKnown = 0,
+      invested = 0;
+    // Margin load needs an actual USD close on the same trading date.
+    const dailyNav = new Map(),
+      navAt = new Map();
+    if (s.currency === "USD") {
+      for (let i = 0; i < s.times.length; i++) {
+        const t = s.times[i];
+        dailyNav.set(sessionDate(t, s.activity.timeZone), s.equity[i]);
+        navAt.set(t, s.equity[i]);
+      }
+    }
+    for (const r of rows) {
+      if (Number.isFinite(r.active)) {
+        countKnown++;
+        if (r.active > 0) invested++;
+        peakActive = Math.max(peakActive ?? 0, r.active);
+      }
+      if (Number.isFinite(r.overnight))
+        peakOvernight = Math.max(peakOvernight ?? 0, r.overnight);
+      if (!Number.isFinite(r.marginUsd)) continue;
+      amountKnown++;
+      bases.add(r.marginBasis);
+      if (r.marginUsd > (peaks.get(r.marginBasis)?.marginUsd ?? -1))
+        peaks.set(r.marginBasis, r);
+      const close =
+        typeof r.closeTime === "string" ? Date.parse(r.closeTime) : r.closeTime;
+      const equity = close == null ? dailyNav.get(r.date) : navAt.get(close);
+      if (r.marginBasis !== "required_equity" && equity > 0)
+        peakLoad = Math.max(peakLoad ?? 0, r.marginUsd / equity);
+    }
+    const byDate = new Map(rows.map((r, i) => [r.date, i]));
+    let selectedDate = rows.at(-1).date;
+    function showDay(day) {
+      selectedDate = day;
+      const input = $("activity-day");
+      if (input.value !== day) input.value = day;
+      const i = byDate.get(day),
+        row = rows[i];
+      $("activity-prev").disabled = day <= rows[0].date;
+      $("activity-next").disabled = day >= rows.at(-1).date;
+      if (!row) {
+        $("activity-reading").innerHTML = empty(
+          "No session record",
+          "Select a date with a recorded session.",
+        );
+        return;
+      }
+      let details = statList([
+        ["Active during session", count(row.active)],
+        ["Held overnight", count(row.overnight)],
+        [marginKind(row.marginBasis)[0], usd(row.marginUsd)],
+      ]);
+      const gaps = [...new Set(Object.values(row.gaps || {}))];
+      if (gaps.length)
+        details +=
+          '<p class="chart-caption">' + gaps.map(escape).join(" ") + "</p>";
+      const entries =
+        row.marginDetails?.components || row.marginDetails?.accounts;
+      if (Array.isArray(entries) && entries.length) {
+        const calculations = entries
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            let rule = v.ruleId || "Account total";
+            if (v.method === "per_contract")
+              rule += " · " + v.rate + " " + v.currency + " per contract";
+            if (v.method === "notional_fraction")
+              rule +=
+                " · " +
+                pct(v.rate, 2) +
+                " of notional · price " +
+                v.price +
+                " " +
+                v.currency +
+                " × multiplier " +
+                v.multiplier;
+            if (v.usdPerUnit != null && v.currency !== "USD")
+              rule += " · FX " + v.usdPerUnit + " USD/" + v.currency;
+            return [
+              v.account,
+              v.symbol || "Account total",
+              v.netQty ?? "—",
+              rule,
+              usd(v.marginUsd),
+            ].map(escape);
+          });
+        details +=
+          "<details><summary>Requirement breakdown</summary>" +
+          table(
+            [
+              "Account",
+              "Instrument",
+              "Net quantity",
+              "Rate rule and inputs",
+              "USD requirement",
+            ],
+            calculations,
+          ) +
+          "</details>";
+      }
+      $("activity-reading").innerHTML = details;
+    }
+    function describe(r) {
+      if (r.date !== selectedDate) showDay(r.date);
+      const lines = [
+        "Active during session  " + (r.active ?? "Not recorded"),
+        "Held overnight  " + (r.overnight ?? "Not recorded"),
+        marginKind(r.marginBasis)[0] + "  " + usd(r.marginUsd),
+      ];
+      if (r.gaps) lines.push(...new Set(Object.values(r.gaps)));
+      return lines;
+    }
+    plots.push(() => {
+      const cursor = C.activity($("activity-chart"), rows, {
+        range: sessionRange(s),
+        color: (key) => marginKind(key)[1],
+        dash: (key) => marginKind(key)[2],
+        describe,
+      });
+      function pick(day) {
+        showDay(day);
+        if (byDate.has(day)) cursor.showAt(byDate.get(day));
+        else cursor.hide();
+      }
+      $("activity-day").onchange = (e) => pick(e.target.value);
+      const seek = (direction) => {
+        let i = byDate.get(selectedDate);
+        if (i === undefined) {
+          i = rows.findIndex((r) => r.date > selectedDate);
+          if (i === -1) i = rows.length;
+          if (direction === 1) i--;
+        }
+        pick(rows[Math.min(rows.length - 1, Math.max(0, i + direction))].date);
+      };
+      $("activity-prev").onclick = () => seek(-1);
+      $("activity-next").onclick = () => seek(1);
+      showDay(selectedDate);
+    });
+    const keys = [
+      ["Active during session", "var(--activity)"],
+      ["Held overnight", "var(--overnight)", true],
+    ];
+    for (const basis of bases) keys.push(marginKind(basis));
+    const summary = [
+      [
+        "Trading activity",
+        countKnown
+          ? pct(invested / countKnown, 1) + " of measured sessions"
+          : "—",
+      ],
+      ["Peak active strategies", count(peakActive)],
+      ["Peak held overnight", count(peakOvernight)],
+      ...Array.from(peaks, ([basis, r]) => [
+        "Peak " + marginKind(basis)[0].toLowerCase(),
+        usd(r.marginUsd) + " · " + r.date,
+      ]),
+      ["Peak margin load", pct(peakLoad, 1)],
+    ];
+    const source = [
+      ["Session records", rows[0].date + " to " + rows.at(-1).date],
+      [
+        "Active counts recorded",
+        count(countKnown) + " / " + count(rows.length),
+      ],
+      [
+        "USD requirements recorded",
+        count(amountKnown) + " / " + count(rows.length),
+      ],
+    ];
+    const dateControl =
+      '<div class="session-picker"><button id="activity-prev" class="icon-button" aria-label="Previous trading day">‹</button>' +
+      '<input id="activity-day" type="date" aria-label="Inspect trading day" min="' +
+      rows[0].date +
+      '" max="' +
+      rows.at(-1).date +
+      '">' +
+      '<button id="activity-next" class="icon-button" aria-label="Next trading day">›</button></div>';
+    const chartBody =
+      legend(keys) +
+      chart("activity-chart") +
+      '<div class="chart-meta"><span>Hover, tap, or use the arrow keys to inspect a trading day.</span></div>';
+    return (
+      panel(
+        "Daily strategy activity and overnight margin",
+        "The upper chart counts distinct strategies. The lower chart shows the total US dollars required at the session close.",
+        chartBody,
+        "",
+        "standalone",
+      ) +
+      '<div class="grid-two">' +
+      panel(
+        "Inspect a trading day",
+        "",
+        '<div id="activity-reading"></div>',
+        dateControl,
+      ) +
+      panel(
+        "Capital requirements",
+        "Peaks within the selected dates. Margin load uses matching USD equity.",
+        statList(summary),
+      ) +
+      "</div>" +
+      panel(
+        "Session coverage",
+        s.activity.source,
+        statList(source) +
+          '<p class="chart-caption">Counts use the supplied session dates. Missing dates and measurements appear as gaps.</p>',
+        "",
+        "standalone",
+      ) +
+      '<p class="chart-caption">An active strategy held a position at any time during the session. A strategy that closed its final position still counts as active that day.</p>'
+    );
+  }
+
   const $view = $("view");
   function showSidebar(open) {
     $("sidebar").classList.toggle("shown", open);
@@ -1517,6 +2191,7 @@
     document.querySelector("h1").textContent = title;
     $("breadcrumb").textContent = views[state.view][0];
     for (const b of $("navigation").querySelectorAll("[data-view]")) {
+      b.hidden = b.dataset.view === "activity" && s.kind !== "portfolio";
       if (b.dataset.view === state.view) b.setAttribute("aria-current", "page");
       else b.removeAttribute("aria-current");
     }
@@ -1586,7 +2261,8 @@
       a.times.length && s.equity.at(-1) <= 0 && opts.end >= s.times.at(-1)
         ? '<p class="notice">Modeled capital reached zero or less. The analysis stops at the first loss of funding.</p>'
         : "";
-    if (!a.times.length || opts.start > opts.end)
+    if (state.view === "activity") $view.innerHTML = message + activityView(s);
+    else if (!a.times.length || opts.start > opts.end)
       $view.innerHTML = empty(
         "No marks in this date range",
         "Select a date range inside the recorded history.",
@@ -1594,17 +2270,23 @@
     else $view.innerHTML = message + builders[state.view](s, a);
     for (const draw of plots) draw();
     updateScorecard();
+    glossary.refresh({ series: s });
     lastWidth = $view.clientWidth;
-    $("export").disabled = !a.times.length;
+    $("export").disabled =
+      state.view === "activity" ? !sessionRows(s).length : !a.times.length;
     $("export").title =
-      state.view === "explorer"
-        ? "Download the selected metric as CSV"
-        : "Download the selected equity and drawdown marks as CSV";
+      state.view === "activity"
+        ? "Download daily activity and USD requirements as CSV"
+        : state.view === "explorer"
+          ? "Download the selected metric as CSV"
+          : "Download the selected equity and drawdown marks as CSV";
   }
   function changeSeries(id) {
     const s = byId.get(id);
     if (!s) return;
     state.id = id;
+    if (state.view === "activity" && s.kind !== "portfolio")
+      state.view = "overview";
     state.explore = null;
     lastByKind.set(s.kind, id);
     state.peer = null;
@@ -1646,10 +2328,30 @@
         ? explorerItems(s, a).find((m) => m.id === state.explore) ||
           explorerItems(s, a)[0]
         : null;
-    const rows = metric
-      ? [["timestamp_utc", "value"]]
-      : [["timestamp_utc", "equity", "drawdown", "maximum_drawdown_to_date"]];
-    if (metric) {
+    const sessions = state.view === "activity" ? sessionRows(s) : null;
+    const rows = sessions
+      ? [
+          [
+            "session_date",
+            "active_strategies",
+            "held_overnight",
+            "overnight_requirement_usd",
+            "requirement_basis",
+          ],
+        ]
+      : metric
+        ? [["timestamp_utc", "value"]]
+        : [["timestamp_utc", "equity", "drawdown", "maximum_drawdown_to_date"]];
+    if (sessions) {
+      for (const r of sessions)
+        rows.push([
+          r.date,
+          r.active ?? "",
+          r.overnight ?? "",
+          r.marginUsd ?? "",
+          r.marginBasis ?? "",
+        ]);
+    } else if (metric) {
       for (let i = 0; i < metric.times.length; i++)
         rows.push([
           new Date(metric.times[i]).toISOString(),
@@ -1673,11 +2375,11 @@
     link.href = url;
     link.download =
       (s.id.replace(/[^a-zA-Z0-9_-]+/g, "-") || "series") +
-      (metric ? "-" + metric.id : "") +
+      (sessions ? "-activity" : metric ? "-" + metric.id : "") +
       "-" +
-      iso(a.times[0]) +
+      (sessions ? sessions[0].date : iso(a.times[0])) +
       "-" +
-      iso(a.times.at(-1)) +
+      (sessions ? sessions.at(-1).date : iso(a.times.at(-1))) +
       ".csv";
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
@@ -1778,13 +2480,6 @@
     } else if (el.id === "peer-select") {
       state.peer = el.value;
       render();
-    } else if (el.hasAttribute("data-matrix")) {
-      state.matrixIds = Array.from(
-        $view.querySelectorAll("[data-matrix]:checked"),
-        (node) => node.dataset.matrix,
-      );
-      state.matrixOpen = true;
-      render();
     }
   });
   $("settings-form").addEventListener("submit", (event) => {
@@ -1845,6 +2540,7 @@
       for (const draw of plots) draw();
     }, 100);
   });
+  const glossary = window.PerformanceGlossary.mount({ report: doc });
   wireChrome();
   syncNavAccess();
   render();
