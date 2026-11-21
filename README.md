@@ -4,9 +4,67 @@
 
 AI coding assistant: **OpenAI Codex, GPT-6 Luna**.
 
-[Open the standalone example](examples/performance/report.html) · [Reporting guide](docs/performance.md) · [Example input manifest](examples/performance/report.json)
+[Copy the AI agent prompt](#create-a-report-with-an-ai-agent) · [Open the standalone example](examples/performance/report.html) · [Reporting guide](docs/performance.md) · [Example input manifest](examples/performance/report.json)
 
 ![Portfolio overview with an equity curve, annual returns and drawdown history](docs/performance-preview.png)
+
+## Create a report with an AI agent
+
+Copy this prompt into an agent that can read your files and run commands. Replace the bracketed fields with your project and output locations.
+
+```text
+Build an offline, interactive Performance Atlas report from [my project folder
+or attached results]. Save it in [output folder, default results/performance-atlas/
+inside my project].
+
+1. Use the codex/performance-report branch of this fork.
+   https://github.com/nishantpatel9999/performance-atlas-dashboard
+   Read CLAUDE.md, .agents/skills/performance-atlas-report/SKILL.md,
+   docs/performance.md and docs/report-coverage.md. Use the data-check,
+   analyze-backtest, strategy-report and portfolio-manager skills under
+   .claude/skills/ as read-only references. For Quantreo projects, use
+   vault/README.md to locate saved trials, reviews and stress tests.
+
+2. Identify the markets, dates, funding, cash flows, currencies, trading
+   sessions, sampling frequency and costs. Label live, paper and backtest
+   results. Distinguish training, validation and published out-of-sample
+   results. Keep unopened tests sealed. Use actual portfolio equity or
+   reconciled member contributions. If inputs are missing, show what you can
+   verify and name the exact files or columns needed.
+
+3. For each strategy and portfolio, show equity, total return, compound annual
+   growth rate (CAGR), mean return of complete calendar years, signed monthly
+   percentage returns, drawdown depth and recovery. Plot six-month rolling
+   maximum drawdown and rolling Sharpe, Sortino, Calmar and volatility. Include
+   win rate, expectancy, profit factor, costs, compatible benchmark comparisons
+   and a strategy correlation matrix with matched observation counts.
+
+4. Put all Metric Explorer charts on one page with one window selector. Use a
+   logarithmic count axis for skewed histograms and retain the raw counts.
+   Include hover definitions and system, light and dark themes. Where records
+   permit, chart daily active strategies and overlay intraday and overnight
+   margin in USD. Let me zoom and select a date to see active strategies and
+   contracts. At a spike, name contributors supported by that timestamp.
+   Label broker measurements, dated estimates and later-rate scenarios.
+   Show gaps for missing observations.
+
+5. Run these commands from the fork’s root using my project’s paths and IDs.
+   Use Python 3.12+, Node.js, and Playwright with Chromium for verification.
+   python -m lab.performance --config CONFIG --output HTML
+
+   Independently check ending equity and maximum drawdown against my ledgers.
+   Calculate monthly returns from those ledgers. Write a CSV with columns
+   series_id,month,return_fraction for every strategy and portfolio.
+   python -m lab.performance.verify_calendar --html HTML --expected CSV --receipt RECEIPT
+
+   Generate and verify a distinct evidence FILE for each strategy and portfolio ID.
+   python -m lab.performance.evidence --html HTML --series ID --out FILE
+   python -m lab.performance.evidence --html HTML --series ID --check FILE
+
+Open the finished HTML. Test date filters, chart drill-down and data export.
+Deliver the report, evidence files, rebuild command and a short summary of
+findings and data gaps. Keep my data and report local unless I request sharing.
+```
 
 ## Open the example
 
