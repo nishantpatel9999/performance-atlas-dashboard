@@ -93,9 +93,19 @@ def verify(html, expected, url=None):
         browser = api.chromium.launch(executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"))
         page = browser.new_page(viewport={"width": 1440, "height": 960})
         page.on("pageerror", lambda error: errors.append(str(error)))
-        response = page.goto(url or html.resolve().as_uri())
-        if url and (not response or not response.ok or response.body() != raw):
-            raise ValueError("The supplied URL did not serve the specified HTML bytes")
+        if url:
+            # Verify the network response, then render those same bytes. The
+            # browser's resource-inspection cache can evict a large document.
+            delivered = page.request.get(url, timeout=60_000)
+            try:
+                if not delivered.ok or delivered.body() != raw:
+                    raise ValueError("The supplied URL did not serve the specified HTML bytes")
+                page.route("**/*", lambda route: route.fulfill(response=delivered), times=1)
+                page.goto(delivered.url, timeout=60_000)
+            finally:
+                delivered.dispose()
+        else:
+            page.goto(html.resolve().as_uri())
         page.wait_for_selector("#series-select")
         kind = None
         for item in series:
@@ -115,7 +125,7 @@ def verify(html, expected, url=None):
     if errors:
         raise ValueError("Browser reported " + "; ".join(errors))
     return {"series_checked": len(ids), "by_series": per_series, "visible_months_checked": counts,
-            "html_sha256": hashlib.sha256(raw).hexdigest()}
+            "html_sha256": hashlib.sha256(raw).hexdigest(), "served_bytes_verified": bool(url)}
 
 
 def main():
