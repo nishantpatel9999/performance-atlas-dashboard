@@ -393,7 +393,7 @@
       {
         "role": "standalone report",
         "file": "report.html",
-        "sha256": "4a95c8254cfb539ff0c4277c1937e5ba56c927f2fb68b14f1d5ca6354cbd6b85"
+        "sha256": "12c4a665abaa8cd7c79e859ee68e0e1c76f140b8ca6f7bbd5006e712693e1fee"
       },
       {
         "role": "canonical embedded JSON",
@@ -408,13 +408,23 @@
       "charts.js": "0bb67269eab1705ef9b1d69f809204d4d983b7e00e5bca216274589252e420f2",
       "glossary.js": "e64bfeaca1e989cbe62e794f2fa9dde2d63b4246db230b55db6c4aced68cb08e",
       "app.js": "1eabfacebe6d517ed09eaeea5edb36f167c2887ce7d5c618ce928e6437ae0db1",
-      "evidence.py": "6ad59e69b73aa5795d848b41996bd09a1a7983f7889a0c99ff05196dd020e5a1",
+      "evidence.py": "a5dd43b89193b1bc76c047d381c8956e55a0c879e3d38729c69d01db82159c22",
       "inputs.py": "9fbfe8939fab730fd407645a277a95ea86f25e0680a8382cced168f1aced6761",
       "activity.py": "8624dc8146ed427172ceda6f9b0dc63a64edc0de1c25d57fd3aabe2f3604a95f",
       "demo.py": "60986a7f050972ab76b029e715ab5e16a1357326120445ea9a637826308dff47"
     },
-    "run_command": "python -m lab.performance --demo --output report.html\npython -m lab.performance.evidence --html report.html --series multi-asset",
-    "command_directory": "Report directory with this package on the Python import path."
+    "report_build": {
+      "schema": 1,
+      "skill": "performance-atlas-report",
+      "repository": "nishantpatel9999/performance-atlas-dashboard",
+      "channel": "codex/performance-report",
+      "version": "2026.11.22+32c5c8b10079",
+      "revision": "32c5c8b10079c604bf66ce357434d96728f695cb",
+      "revision_utc": "2026-11-22T17:36:12Z",
+      "built_utc": "2026-11-22T17:36:51Z"
+    },
+    "run_command": "SOURCE_DATE_EPOCH=1795369011 python atlas_release.py --revision 32c5c8b10079c604bf66ce357434d96728f695cb build --demo --output report.html\npython atlas_release.py --revision 32c5c8b10079c604bf66ce357434d96728f695cb evidence --html report.html --series multi-asset",
+    "command_directory": "Report directory with the standalone atlas_release.py launcher."
   },
   "robustness": {
     "holdout_design": "One illustrative window. The generator reserves no unseen period.",
