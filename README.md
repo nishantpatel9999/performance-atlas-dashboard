@@ -17,8 +17,16 @@ Build an offline, interactive Performance Atlas report from [my project folder
 or attached results]. Save it in [output folder, default results/performance-atlas/
 inside my project].
 
-1. Use the codex/performance-report branch of this fork.
-   https://github.com/nishantpatel9999/performance-atlas-dashboard
+1. For each new build or rebuild, resolve the current codex/performance-report
+   revision from GitHub once, even from main, an installed skill or a project pin.
+   If this operation already has that pin, continue with it. Otherwise, download
+   the standalone launcher and resolve the release.
+   curl -fsSL https://raw.githubusercontent.com/nishantpatel9999/performance-atlas-dashboard/refs/heads/codex/performance-report/scripts/atlas_release.py -o atlas_release.py
+   python atlas_release.py resolve
+   Use the returned immutable skill_url for SKILL.md below. Use the 40-character
+   revision for FULL_SHA and the following upstream references. Keep private inputs
+   local when fetching public release files. If lookup fails,
+   report that latest is unverified. Use a historical pin only if I request reproduction.
    Read CLAUDE.md, .agents/skills/performance-atlas-report/SKILL.md,
    docs/performance.md and docs/report-coverage.md. Use the data-check,
    analyze-backtest, strategy-report and portfolio-manager skills under
@@ -48,30 +56,38 @@ inside my project].
    Label broker measurements, dated estimates and later-rate scenarios.
    Show gaps for missing observations.
 
-5. Run these commands from the fork’s root using my project’s paths and IDs.
+5. Run these commands using my project’s paths and IDs. Project-relative paths work.
+   For native Quantreo runs, use the pinned engine with my actual project’s data root.
    Use Python 3.12+, Node.js, and Playwright with Chromium for verification.
-   python -m lab.performance --config CONFIG --output HTML
+   python atlas_release.py --revision FULL_SHA build --config CONFIG --output HTML
 
    Independently check ending equity and maximum drawdown against my ledgers.
    Calculate monthly returns from those ledgers. Write a CSV with columns
    series_id,month,return_fraction for every strategy and portfolio.
-   python -m lab.performance.verify_calendar --html HTML --expected CSV --receipt RECEIPT
+   python atlas_release.py --revision FULL_SHA verify-calendar --html HTML --expected CSV --receipt RECEIPT
 
    Generate and verify a distinct evidence FILE for each strategy and portfolio ID.
-   python -m lab.performance.evidence --html HTML --series ID --out FILE
-   python -m lab.performance.evidence --html HTML --series ID --check FILE
+   python atlas_release.py --revision FULL_SHA evidence --html HTML --series ID --out FILE
+   python atlas_release.py --revision FULL_SHA evidence --html HTML --series ID --check FILE
+
+   For large reports, this optional command reuses one verified snapshot for all strategies and checks.
+   python atlas_release.py --revision FULL_SHA batch STEPS.json
+   Supply a local JSON array of argument lists. Each starts with "build", "verify-calendar" or "evidence".
 
 Open the finished HTML. Test date filters, chart drill-down and data export.
-Deliver the report, evidence files, rebuild command and a short summary of
+Check the Build details footer against provenance.report_build in the evidence.
+Deliver the report, evidence files, full SHA, version, build time, rebuild command and a short summary of
 findings and data gaps. Keep my data and report local unless I request sharing.
 ```
 
+**Report version.** `YYYY.MM.DD+<first 12 SHA>` uses the UTC committer date and needs no tag or manual bump. **Build details** records the release and the UTC report build time. The input records supply the data dates. A legacy report without build identity has an unknown release. Saved HTML stays readable offline.
+
 ## Open the example
 
-Download the example HTML file and open it in a browser. The charts, settings and data are in that file. To build a fresh copy from the repository root, use Python 3.12 or later.
+Download the example HTML file and open it in a browser. The charts, settings and data are in that file. To build a fresh copy, use Python 3.12 or later and the FULL_SHA resolved in step 1.
 
 ```sh
-python3 -m lab.performance --demo --output results/performance/report.html
+python atlas_release.py --revision FULL_SHA build --demo --output results/performance/report.html
 ```
 
 The demo contains four synthetic strategy histories, their funded portfolio and a synthetic benchmark. Open **Activity and margin** to inspect strategy counts and modeled overnight capital for each session. Open **Comparisons** on a strategy to inspect its return correlations with peers. Hover or tap an underlined term for its definition, or search **Glossary**. The appearance menu follows your system by default and also offers **Light** and **Dark**. Each shareable HTML file includes its underlying observations, trade records and source metadata.
@@ -80,10 +96,10 @@ The demo contains four synthetic strategy histories, their funded portfolio and 
 
 1. Copy the example manifest, its CSV, and the optional [overnight activity example](examples/performance/overnight.json). Give each strategy, portfolio and benchmark a unique ID. Remove the `activityFile` entry to use only equity histories.
 2. Supply a performance history, currency, return sampling interval and periods per year for each series. A portfolio accepts the actual portfolio equity or its dated net P&L stream.
-3. Build the report and open the HTML file in a browser.
+3. Use the FULL_SHA from step 1 of the agent prompt to build the report. Open the HTML file in a browser.
 
 ```sh
-python3 -m lab.performance --config examples/performance/report.json --output results/my-report.html
+python atlas_release.py --revision FULL_SHA build --config examples/performance/report.json --output results/my-report.html
 ```
 
 The portable builder uses the Python standard library. The Quantreo adapters use the upstream research environment. Both routes produce the same interface. The report also accepts optional benchmark, trade, cost, exposure and custom metric data. [Inputs, native commands and calculation methods](docs/performance.md)
