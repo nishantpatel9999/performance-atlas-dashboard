@@ -24,6 +24,12 @@ Use **Settings** to change the date range, rolling window, annual risk-free rate
 
 Both monthly heatmaps print the signed percentage. Use **All months** to open the full calendar. The second line in the full table shows the change in account currency or index points. **Export data** on that page saves the selected months with their percentage return and change in equity. [Verify a new report against its source ledger](report-coverage.md#verify-the-monthly-returns-a-reader-sees)
 
+### Select a strategy on a phone
+
+Open the strategy or portfolio field. The picker shows the current selection and the number of available choices. Swipe the list to reach either end. Tap a name to update the current report view, or tap Close to keep your selection. In a report that loads portfolios separately, the strategy count applies to the loaded portfolio.
+
+When verifying a report, use a list longer than the phone screen. Swipe to the last item, select it and check the displayed history. Reopen the picker and check that the selected item is visible. Repeat in landscape and check that the desktop selector still works.
+
 ## Connect a project
 
 Start with [the example manifest](../examples/performance/report.json), [its monthly CSV](../examples/performance/monthly-marks.csv), and [its optional activity file](../examples/performance/overnight.json). Run the following command from the repository root.

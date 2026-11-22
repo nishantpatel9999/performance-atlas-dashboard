@@ -271,7 +271,7 @@ class GlossaryTests(unittest.TestCase):
         p.keyboard.press("Enter")
         self.assertTrue(p.get_by_role("tooltip").is_visible())
 
-    def test_generated_mobile_report_opens_offline_and_keeps_native_controls(self):
+    def test_generated_mobile_report_opens_offline_and_keeps_interactive_controls(self):
         p = self.page
         p.set_viewport_size({"width": 320, "height": 640})
         times = [1704067200000, 1704153600000]
@@ -295,7 +295,8 @@ class GlossaryTests(unittest.TestCase):
             self.assertTrue(opener.evaluate("el => el === document.activeElement"))
             p.get_by_role("button", name="Open navigation").tap()
             p.locator('[data-view="explorer"]').tap()
-            p.locator("#series-select").select_option("two")
+            p.locator("#series-picker-trigger").tap()
+            p.locator('#series-options button[data-value="two"]').tap()
             term = p.get_by_role("heading", name="Settlement band").locator("[data-atlas-term]")
             term.tap()
             tip = p.get_by_role("tooltip")

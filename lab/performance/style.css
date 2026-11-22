@@ -1689,3 +1689,85 @@ dialog select {
 .activity-zoom { display: flex; flex-wrap: wrap; gap: 5px; }
 .activity-detail-title { margin: 16px 0 6px; font-size: 13px; }
 .session-samples { margin-block: 12px; }
+
+.series-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  max-width: min(42vw, 26rem);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 550;
+  text-align: start;
+}
+#series-picker-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.series-picker-trigger .icon { flex: none; }
+@media (max-width: 610px) {
+  .series-picker-trigger { flex: 1; max-width: 78%; }
+}
+html:has(#series-picker[open]) { overflow: hidden; }
+#series-picker[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(28rem, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  position: fixed;
+  inset: 50vh auto auto 50vw;
+  top: 50dvh;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  overflow: hidden;
+}
+.series-picker-heading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.series-picker-heading h2 { margin: 0; font: 600 18px/1.3 var(--sans); }
+#series-picker-count { color: var(--muted); font-size: 12px; }
+#series-picker-close { min-width: 44px; min-height: 44px; color: var(--brand); }
+#series-options {
+  position: relative;
+  min-height: 0;
+  max-height: min(60vh, 24rem);
+  max-height: min(60dvh, 24rem);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y pinch-zoom;
+  padding: 4px 7px;
+}
+#series-options button {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 5px;
+  text-align: start;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+#series-options button[aria-current="true"] {
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-weight: 650;
+}
+#series-options button:focus-visible { outline-offset: -3px; }
