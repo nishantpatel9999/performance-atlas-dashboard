@@ -189,7 +189,7 @@ class InputTests(unittest.TestCase):
         for name in scripts:
             (self.root / name).write_text("// " + name + "\n")
         out = self.root / "nested/report.html"
-        with patch.object(build, "ASSET_DIR", self.root):
+        with patch.object(build, "ASSET_DIR", self.root), patch.dict("os.environ", {"SOURCE_DATE_EPOCH": "1735689600"}):
             self.assertEqual(build.render_bundle(report, out), out)
             regular = self.root / "style.css"
             self.assertEqual(out.stat().st_mode & 0o777, regular.stat().st_mode & 0o777)

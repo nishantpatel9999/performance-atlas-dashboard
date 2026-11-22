@@ -15,6 +15,7 @@ from pathlib import Path
 from statistics import fmean
 
 from .build import SCRIPTS
+from .provenance import validate_stamp
 
 
 ASSETS = Path(__file__).resolve().parent
@@ -58,35 +59,46 @@ def _sha(data):
 class _Payload(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=False)
-        self.active = False
-        self.scripts = []
+        self.active = None
+        self.scripts = {}
 
     def handle_starttag(self, tag, attrs):
+        if tag != "script":
+            return
         attrs = dict(attrs)
-        if tag == "script" and attrs.get("id") == "report-data":
-            if self.scripts or attrs.get("type") != "application/json" or "src" in attrs:
-                raise ValueError("Expected one inline application/json script with id report-data")
-            self.active = True
-            self.scripts.append([])
+        key = attrs.get("id")
+        if key in ("report-data", "atlas-build"):
+            if key in self.scripts or attrs.get("type") != "application/json" or "src" in attrs:
+                raise ValueError(f"Expected one inline application/json script with id {key}")
+            self.active = key
+            self.scripts[key] = []
 
     def handle_data(self, data):
         if self.active:
-            self.scripts[-1].append(data)
+            self.scripts[self.active].append(data)
 
     def handle_endtag(self, tag):
         if tag == "script":
-            self.active = False
+            self.active = None
 
 
-def read_payload(html):
-    """Return the embedded JSON object and the SHA-256 of its exact UTF-8 text."""
+def _read_page(html):
     parser = _Payload()
     parser.feed(html)
     parser.close()
-    if not parser.scripts or parser.active:
-        raise ValueError("Missing or incomplete report-data script")
-    raw = "".join(parser.scripts[0])
-    return _strict_json(raw), _sha(raw.encode("utf-8"))
+    if parser.active or "report-data" not in parser.scripts:
+        raise ValueError("Missing or incomplete report-data or atlas-build script")
+    raw = "".join(parser.scripts["report-data"])
+    build = None
+    if "atlas-build" in parser.scripts:
+        build = validate_stamp(_strict_json("".join(parser.scripts["atlas-build"])))
+    return _strict_json(raw), _sha(raw.encode("utf-8")), build
+
+
+def read_payload(html):
+    """Return the financial input and its digest independently of the report build date."""
+    data, digest, _ = _read_page(html)
+    return data, digest
 
 
 def read_source_manifest(path, evidence):
@@ -693,7 +705,7 @@ def build_manifest(html, series_id=None, source_manifest=None):
     html = Path(html)
     raw = html.read_bytes()
     page = raw.decode("utf-8")
-    payload, payload_digest = read_payload(page)
+    payload, payload_digest, report_build = _read_page(page)
     page = page.replace("\r\n", "\n")
     bundle = validate_bundle(payload)
     if bundle != payload:
@@ -788,11 +800,24 @@ def build_manifest(html, series_id=None, source_manifest=None):
                           "sha256": series["evidence"]["sourceManifest"]["sha256"]})
     _register(manifest, "provenance.artifacts", artifacts, "")
     _register(manifest, "provenance.code_version", hashes, "")
+    if report_build is not None:
+        manifest["provenance"]["report_build"] = report_build
+    build_cmd = ["python", "-m", "lab.performance"]
+    directory = "Report directory with this package on the Python import path."
+    if report_build and report_build["revision"]:
+        launcher = ["python", "atlas_release.py", "--revision", report_build["revision"]]
+        cmd = [*launcher, "evidence", *cmd[3:]]
+        build_cmd = [*launcher, "build"]
+        directory = "Report directory with the standalone atlas_release.py launcher."
     commands = [shlex.join(cmd)]
     if demo:
-        commands.insert(0, shlex.join(["python", "-m", "lab.performance", "--demo", "--output", report_name]))
+        prefix = ""
+        if report_build:
+            epoch = int(datetime.fromisoformat(report_build["built_utc"]).timestamp())
+            prefix = f"SOURCE_DATE_EPOCH={epoch} "
+        commands.insert(0, prefix + shlex.join([*build_cmd, "--demo", "--output", report_name]))
     _register(manifest, "provenance.run_command", "\n".join(commands), "")
-    manifest["provenance"]["command_directory"] = "Report directory with this package on the Python import path."
+    manifest["provenance"]["command_directory"] = directory
     return manifest
 
 

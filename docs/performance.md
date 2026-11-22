@@ -2,6 +2,14 @@
 
 One HTML file holds the data, calculations and charts. It opens from disk and works without a server. Include the requested portfolios from one project in the same report. The **Portfolio** dropdown selects each portfolio. If you host the report, use one website address. Make separate files when the user requests them or when access rules require separate deliverables. A recipient can read all embedded records, including trade histories and source metadata. The synthetic example includes a [reproducible evidence manifest](../examples/performance/research_tests/manifest.json).
 
+## Report build identity
+
+Open **Build details** in the report footer. The release version `YYYY.MM.DD+<first 12 SHA>` uses the UTC committer date and revision from `nishantpatel9999/performance-atlas-dashboard`, channel `codex/performance-report`. Tags and manual version bumps are unnecessary. The report build time (`built_utc`) and the dates covered by each series have separate meanings.
+
+Read the machine-readable stamp from `script#atlas-build[type="application/json"]`. For a channel release it contains schema `1`, skill `performance-atlas-report`, repository, channel, full 40-character `revision`, `revision_utc`, `version` and `built_utc`. Both timestamps use UTC with a trailing `Z`. Compare it with `provenance.report_build` in the report evidence. A legacy report with no identity has an unknown release.
+
+The low-level builder also works offline. It identifies a downloaded package verified against its Git revision or a clean known checkout. Otherwise it records a local source fingerprint. A fingerprint alone cannot confirm the current channel head. To reproduce an original build clock when explicitly needed, set `SOURCE_DATE_EPOCH` to the original build time in Unix seconds.
+
 ## Choose a view
 
 | View | Questions it answers |
@@ -32,11 +40,9 @@ When verifying a report, use a list longer than the phone screen. Swipe to the l
 
 ## Connect a project
 
-Start with [the example manifest](../examples/performance/report.json), [its monthly CSV](../examples/performance/monthly-marks.csv), and [its optional activity file](../examples/performance/overnight.json). Run the following command from the repository root.
+Start with [the example manifest](../examples/performance/report.json), [its monthly CSV](../examples/performance/monthly-marks.csv), and [its optional activity file](../examples/performance/overnight.json). For every new build or rebuild, follow the [release selection and build commands](../README.md#create-a-report-with-an-ai-agent), even from `main` or an installed skill. Read the returned immutable skill and run the build, evidence and calendar checks at that revision. If resolution fails, report that latest is unverified.
 
-```sh
-python3 -m lab.performance --config examples/performance/report.json --output results/example.html
-```
+A standalone `python atlas_release.py build --config CONFIG --output HTML` resolves a fresh channel head when no revision is supplied. Read the resulting full SHA from **Build details** and pin any follow-up checks to it. Use a historical SHA only for a requested reproduction.
 
 Each series has a unique `id`, a display `name`, a `kind` of `strategy`, `portfolio` or `benchmark`, a `currency`, a sampling `frequency` and `periodsPerYear`. Set `currency` to `INDEX` for dimensionless capital. A currency-denominated benchmark can represent 100 units of that currency invested at its opening mark.
 
@@ -56,12 +62,13 @@ UTC dates such as `2025-01-31` describe daily marks. Use a timestamp with an exp
 
 **Currency conversion.** Combine funded positions in a common currency. To convert a CSV equity path, specify `sourceCurrency`, output `currency` and `fxColumn`. Each FX value is units of output currency per unit of source currency at that mark. Return streams also require `openingFxRate`. Supply trade P&L and costs in the output currency, with units recorded. Factor and market benchmark comparisons need compatible intervals and return bases.
 
-A Python producer can bypass CSV and call the same builder with a validated bundle. Here `times` contains integer Unix milliseconds in UTC and `equity` contains the corresponding values.
+A Python producer can write a canonical JSON bundle for the launcher. Here `times` contains integer Unix milliseconds in UTC and `equity` contains the corresponding values.
 
 ```python
-from lab.performance import render_bundle
+import json
+from pathlib import Path
 
-render_bundle({
+bundle = {
     "version": 1,
     "title": "Research account",
     "series": [{
@@ -70,8 +77,18 @@ render_bundle({
         "times": [1735603200000, 1738281600000, 1740700800000],
         "equity": [100000, 101200, 100600],
     }],
-}, "results/portfolio.html")
+}
+Path("report.json").write_text(json.dumps(bundle), encoding="utf-8")
 ```
+
+With the resolved Atlas package on the Python import path, a producer can also pass the same bundle directly to the builder.
+
+```python
+from lab.performance import render_bundle
+render_bundle(bundle, "results/portfolio.html")
+```
+
+Custom shell producers using the pinned package must replace the template’s `<!--REPORT_BUILD-->` slot with the trusted HTML returned by `provenance.render_stamp(provenance.make_stamp(revision, revision_utc, built_utc=built_utc))`. Use the resolved commit and its UTC committer timestamp. Omit the optional `built_utc` argument to use the build clock. Keep this stamp when assembling the final HTML.
 
 ## Add evidence and measurements
 
@@ -139,7 +156,7 @@ Each Metric explorer card keeps the original value intervals and observation cou
 
 ## Native Quantreo runs
 
-Use the upstream environment for these commands. Supply a saved strategy name. The HTML export reads eligible saved runs and respects the desk's recorded test access.
+Use the strategy HTML or book construction HTML entry point from the pinned release in the project's Quantreo environment. Bind its data root to the actual project containing the vault, saved runs and market data. Confirm the resolved paths and output destination before running. Changing the shell directory alone can leave a native adapter reading data relative to its module. If the adapter cannot bind the project root, export the project's saved marks to the portable manifest and use the pinned launcher. Keep sealed tests closed. With the engine and project paths confirmed, use the existing native commands.
 
 ```sh
 python3 -m lab.strategy_report "My strategy" html --output results/strategy.html

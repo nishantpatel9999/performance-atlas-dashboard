@@ -989,11 +989,31 @@ tbody tr:last-child th {
 }
 footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 15px;
   font-size: 10.5px;
   color: var(--muted);
   padding-top: 15px;
+  row-gap: 6px;
+}
+#atlas-build-info {
+  flex-basis: 100%;
+  min-width: 0;
+}
+#atlas-build-info summary {
+  width: fit-content;
+  cursor: pointer;
+}
+#atlas-build-info dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+#atlas-build-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 footer span:first-child {
   font-weight: 650;
