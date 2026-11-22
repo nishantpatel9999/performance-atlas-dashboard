@@ -73,7 +73,14 @@ class SupplementBrowserTests(unittest.TestCase):
         with self.page.expect_download() as handle:
             self.page.locator("#export").click()
         with handle.value.path().open() as stream:
-            exported = {r["month"]: r for r in csv.DictReader(stream)}
+            reader = csv.DictReader(stream)
+            self.assertEqual(reader.fieldnames, ["month", "return_pct", "equity_change", "unit",
+                                                "coverage", "opening_utc", "closing_utc"])
+            rows = list(reader)
+            exported = {r["month"]: r for r in rows}
+        self.assertEqual(len(rows), len(exported))
+        for month in exported:
+            self.assertRegex(month, r"^\d{4}-(0[1-9]|1[0-2])$")
         self.assertIn("-monthly-", handle.value.suggested_filename)
         self.assertAlmostEqual(float(exported["2023-03"]["return_pct"]), (96 / 102 - 1) * 100)
         self.assertEqual(float(exported["2023-03"]["equity_change"]), -6)
@@ -106,13 +113,13 @@ class SupplementBrowserTests(unittest.TestCase):
         self.assertEqual(bars.count(), 1)
         self.assertIn("-4.00 USD", table.get_by_role("row").filter(has_text="Net P&L").inner_text())
         self.view("calendar")
-        cell = self.page.locator(".heat td[data-tip]")
+        cell = self.page.locator(".heat tbody td[data-month][data-tip]")
         self.assertEqual(cell.count(), 1)
         self.assertIn("-6.00", cell.inner_text())
         self.assertIn("USD", cell.get_attribute("aria-label"))
         self.assertIn("-5.88%", cell.get_attribute("aria-label"))
         self.page.locator("#series-select").select_option("index")
-        self.assertIn("index points", self.page.locator(".heat td[data-tip]").first.get_attribute("aria-label"))
+        self.assertIn("index points", self.page.locator(".heat tbody td[data-month][data-tip]").first.get_attribute("aria-label"))
         self.view("trades")
         self.assertIn("-2.00 index points", table.get_by_role("row").filter(has_text="Net P&L").inner_text())
 
@@ -129,7 +136,7 @@ class SupplementBrowserTests(unittest.TestCase):
         self.page.locator("#series-select").select_option("many")
         self.view("calendar")
         self.page.set_viewport_size({"width": 320, "height": 740})
-        cells = self.page.locator(".heat td[data-tip] small")
+        cells = self.page.locator(".heat tbody td[data-month][data-tip] small")
         self.assertGreater(cells.count(), 12)
         self.assertTrue(cells.evaluate_all(
             "labels => labels.every(el => el.getBoundingClientRect().width <= el.parentElement.clientWidth + 1)"

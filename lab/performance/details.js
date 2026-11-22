@@ -307,10 +307,13 @@
   /** Subtract actual marks at the calendar return's boundaries. Division by
    *  (1 + return) cannot recover opening capital after a total loss. */
   function monthlyAmounts(series, analysis) {
-    const { times, equity } = analysis, sessions = precedingSessions(series);
     const unitized = /\b(?:uniti[sz]ed|per[ -](?:unit|share))\b/i.test(series.accounting || "");
     const unit = series.currency === "INDEX" ? "index points"
       : unitized ? series.currency + " per unit" : series.currency;
+    if (analysis.months.every(row => Object.hasOwn(row, "amount"))) {
+      return { unit, months: analysis.months.map(row => ({ ...row })) };
+    }
+    const { times, equity } = analysis, sessions = precedingSessions(series);
     let priorTime = analysis.meta.baselineTime, priorEquity = analysis.summary.startEquity;
     let i = times[0] === priorTime ? 1 : 0;
     const months = analysis.months.map(row => {
@@ -326,6 +329,22 @@
       return { ...row, amount: finite(row.return) ? numberOrNull(priorEquity - open) : null };
     });
     return { unit, months };
+  }
+
+  /** Equal-weight means of complete calendar periods from an unfiltered history. */
+  function calendarAverages(history) {
+    function average(periods) {
+      const count = periods.length;
+      if (!count) return { count: 0, return: null, amount: null };
+      const mean = key => periods.every(p => finite(p[key]))
+        ? numberOrNull(periods.reduce((sum, p) => sum + p[key] / count, 0)) : null;
+      return { count, return: mean("return"), amount: mean("amount") };
+    }
+    const byMonth = Array.from({ length: 12 }, () => []);
+    for (const period of history.months) {
+      if (period.coverage === "full" && finite(period.return)) byMonth[period.month - 1].push(period);
+    }
+    return { months: byMonth.map(average), year: average(history.years.filter(p => p.complete && finite(p.return))) };
   }
 
   /** Count positive, flat and losing historical windows at the declared closes.
@@ -958,5 +977,5 @@
   }
 
   return Object.freeze({ benchmark, trades, tails, correlationMatrix, strategyGroups, attribution, evidenceCoverage,
-    returnMeasures, monthlyAmounts, profitableWindows });
+    returnMeasures, monthlyAmounts, calendarAverages, profitableWindows });
 });

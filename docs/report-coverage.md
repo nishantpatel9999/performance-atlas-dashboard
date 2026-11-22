@@ -66,6 +66,8 @@ The check reads the percentage printed in each cell and compares it with the ref
 
 A hosted check downloads the report once, verifies its exact bytes and opens that response in Chromium. The receipt records `served_bytes_verified` along with both checksums and each series’ visible cell counts. This also works with large, compressed HTML reports.
 
+Reconcile each Year return with its opening and closing equity, including the previous December close when it funds the first January observation. Check the Average row against complete matching periods in the underlying history. Include observed zeroes and exclude partial periods and gaps. The bottom-right cell uses complete years. Repeat after a date change and verify each average and its sample count in both views. On a phone, scroll to the last column and bottom row.
+
 For a changed reporting implementation, also exercise a date filter, keyboard focus and a narrow screen. Check a gain, a loss, a flat month, an absent month and a partial boundary. Confirm that the calendar download retains full precision and names the account unit. Compare activity, trades, costs and benchmarks over the dates their source actually covers.
 
 For Metric explorer, verify that every applicable measure and custom diagnostic appears on the same page. Change its single rolling window. Check that both count-axis scales preserve bin membership, exact counts and zeros. For Activity and margin, zoom around a spike, select a session and compare the named strategies and contracts with its ledger. Check a timestamped intraday point, an overnight reference and a missing session. Include a position that closes intraday. Identify any later-schedule scenario in the graph and export.

@@ -822,6 +822,28 @@ tbody tr:last-child th {
 .heat sup {
   font-size: .75em;
 }
+.heat thead th:last-child,
+.heat td[data-year-return],
+.heat td[data-year-average] {
+  border-inline-start: 2px solid var(--line);
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+.heat tfoot th,
+.heat tfoot td {
+  border-top: 2px solid var(--line);
+  font-weight: 650;
+}
+.heat tfoot th:first-child {
+  text-align: left;
+  padding-inline: 2px;
+}
+.heat-averages-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
 .count-scale {
   display: block;
   margin: 2px 0 0 auto;

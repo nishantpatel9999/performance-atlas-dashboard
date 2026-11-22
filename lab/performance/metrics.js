@@ -400,22 +400,30 @@
         : nearBoundary(times[g.last], unit, false, cfg, times[last]);
       return end ? 'full' : 'partial';
     }
+    function periodResult(g, unit) {
+      const value = groupReturn(g);
+      return {
+        return: value,
+        amount: value == null ? null : finite(equity[g.last] - equity[g.open]),
+        openingTime: g.open < g.last ? times[g.open] : null,
+        closingTime: times[g.last],
+        coverage: coverage(g, unit, value)
+      };
+    }
     for (const g of groups.years) {
-      const value = groupReturn(g), depth = g.last > g.open ? finite(g.worst) : null;
-      const complete = depth != null && coverage(g, 'year', value) === 'full';
-      out.years.push({ year: g.key, return: value, maxDrawdown: depth,
+      const period = periodResult(g, 'year'), depth = g.last > g.open ? finite(g.worst) : null;
+      const complete = depth != null && period.coverage === 'full';
+      out.years.push({ year: g.key, ...period, maxDrawdown: depth,
         sharpe: ratios(g.moments, cfg).sharpe, complete });
       if (complete) {
         count++;
-        meanReturn += (value - meanReturn) / count;
+        meanReturn += (period.return - meanReturn) / count;
         meanDepth += (depth - meanDepth) / count;
       }
     }
     for (const g of groups.months) {
-      const year = Math.floor(g.key / 12), value = groupReturn(g);
-      out.months.push({ year, month: g.key - year * 12 + 1, return: value,
-        openingTime: g.open < g.last ? times[g.open] : null, closingTime: times[g.last],
-        coverage: coverage(g, 'month', value) });
+      const year = Math.floor(g.key / 12);
+      out.months.push({ year, month: g.key - year * 12 + 1, ...periodResult(g, 'month') });
     }
     out.meta.completeYears = count;
     out.summary.meanYearReturn = count ? finite(meanReturn) : null;

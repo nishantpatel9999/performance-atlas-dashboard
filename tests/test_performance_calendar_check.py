@@ -6,9 +6,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 import unittest
+from unittest.mock import patch
 
 from lab.performance import render_bundle
-from lab.performance.verify_calendar import verify, verify_cells
+from lab.performance.verify_calendar import verify, verify_cells, verify_table
 
 
 class CalendarCheckTests(unittest.TestCase):
@@ -21,6 +22,33 @@ class CalendarCheckTests(unittest.TestCase):
                         ("2025-01", ".01", "+1.23%"), ("2025-04", "0", "0.00%")):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 verify_cells([invalid, *rows[1:]], expected, "calendar", "trend")
+
+    def test_malformed_month_cannot_pass_as_an_empty_cell(self):
+        for month in (None, "", "2025-13", "2025-1", "2025"):
+            with self.subTest(month=month), self.assertRaisesRegex(ValueError, "identified month"):
+                verify_cells([(month, None, "—")], {}, "calendar", "fund")
+
+    def test_reader_checks_summary_placement_counts_and_source_returns(self):
+        expected = {f"2023-{m:02}": v for m, v in enumerate([.1, -.1] + [0.] * 10, 1)}
+        months, averages = [], []
+        for i, (month, value) in enumerate(expected.items(), 1):
+            cell = {"return": str(value), "label": f"{value:+.2%}"}
+            months.append({**cell, "month": month, "coverage": "full"})
+            averages.append({**cell, "monthAverage": str(i), "count": "1"})
+        annual = {"yearReturn": "2023", "coverage": "full", "return": "-.01", "label": "-1.00%"}
+        mean = {"yearAverage": "", "count": "1", "return": "-.01", "label": "-1.00%"}
+        table = {"header": "Year return", "body": [{"heading": "2023", "cells": [*months, annual]}],
+                 "footer": [{"heading": "Average", "cells": [*averages, mean]}]}
+        history = [[] for _ in range(13)]
+        self.assertEqual(verify_table(table, expected, "calendar", "fund", history), 12)
+        self.assertEqual(verify_table(table, expected, "overview", "fund", history), 12)
+        for cell, key, invalid in ((months[0], "month", None), (months[1], "yearReturn", "2023"),
+                                   (annual, "yearReturn", "2024"), (annual, "return", "0"),
+                                   (averages[0], "count", "0"), (averages[1], "return", ".1"),
+                                   (averages[2], "monthAverage", "4"), (mean, "count", "2")):
+            with self.subTest(key=key, invalid=invalid), patch.dict(cell, {key: invalid}):
+                with self.assertRaises(ValueError):
+                    verify_table(table, expected, "overview", "fund", history)
 
     def test_overview_needs_recent_measured_months(self):
         source = {f"{year}-01": .04 for year in range(2010, 2020)}
