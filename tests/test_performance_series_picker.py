@@ -92,6 +92,33 @@ class SeriesPickerTests(unittest.TestCase):
         trigger.tap()
         expect(choices.get_by_role("button")).to_have_count(2)
 
+    def test_landscape_swipe_recovers_only_a_missed_vertical_pan(self):
+        page = self.page(844, 390, touch=True)
+        page.locator("#series-picker-trigger").tap()
+        choices = page.locator("#series-options")
+        # Scripted touches exercise the path where the browser delivers the
+        # gesture but leaves the native scroll offset unchanged.
+        offsets = choices.evaluate("""async list => {
+            const target = list.querySelector("button");
+            const touch = (x, y) => new Touch({identifier: 1, target, clientX: x, clientY: y});
+            const fire = (type, point) => target.dispatchEvent(new TouchEvent(type, {
+                bubbles: true, touches: type === "touchstart" ? [point] : [], changedTouches: [point]
+            }));
+            const gesture = async (x, y, nativeTop = 100, cancel = false) => {
+                list.scrollTop = 100;
+                fire("touchstart", touch(50, 150));
+                list.scrollTop = nativeTop;
+                if (cancel) fire("touchcancel", touch(x, y));
+                fire("touchend", touch(x, y));
+                await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
+                return list.scrollTop;
+            };
+            return [await gesture(50, 60), await gesture(50, 220), await gesture(50, 60, 145),
+                    await gesture(150, 145), await gesture(50, 148), await gesture(50, 60, 100, true)];
+        }""")
+        self.assertEqual(offsets, [190, 30, 145, 100, 100, 100])
+        expect(page.locator("#series-select")).to_have_value("strategy-0")
+
     def test_webkit_landscape_reopens_at_the_selected_strategy(self):
         webkit = self.playwright.webkit
         if not Path(webkit.executable_path).is_file():
