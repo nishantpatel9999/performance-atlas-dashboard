@@ -22,6 +22,7 @@
     sessions: 'For daily sampling, sessionDates lists the expected UTC trading dates. The caller supplies the full calendar for the span. Only listed days produce daily closes. Funding can precede the first session. All supplied marks count for equity and drawdown. A missed scheduled session gives a null interval at the next close.',
     gaps: 'Without a supplied calendar, daily series with at least 360 periods/year require adjacent UTC dates. Other daily series allow weekends and one intervening weekday for a possible holiday. Coarser samples require adjacent calendar buckets. Summary ratios use finite intervals. The gaps list records omitted intervals.',
     calendar: 'Each month and year uses its own observed opening and closing equity. A prior period close can supply opening capital. A partial period with just one unanchored mark has a null return. Full-year means need both boundaries and uninterrupted coverage at the declared frequency. A supplied calendar sets the first and last sessions. Without one, seven-day markets require exact dates. The weekday rule permits one possible holiday. A year ending one weekday early needs subsequent observations through the boundary.',
+    monthCoverage: 'Monthly openingTime and closingTime identify the actual marks. A lone unanchored close has a null openingTime. Coverage is full at both boundaries, partial at a cut or unobserved boundary, and gap when a missing interval affects the month. A gap can still have an observed endpoint return. Months without a return observation have no row.',
     rolling: 'Rolling values are as of each sampled close. Daily windows subtract whole UTC months and clamp the day, retaining the close time. Drawdown uses marks inside the inclusive calendar window. Return uses the last actual valuation at or before the cutoff. A supplied calendar permits a closure of any length if no intervening session was due. Without a calendar, the opening must be within one day (seven-day series) or four days and the bracketing interval must be admissible.',
     rollingCloses: 'Monthly windows open at the last observed close in the month N months earlier, including its actual date and time. Weekly windows open at the last weekly close at or before the clamped cutoff, in its week or the immediately preceding observed week. Both use every raw mark from that opening through the ending close for drawdown and Calmar. openingTimes identifies the actual return opening. Missing boundary buckets stay unavailable. Rolling ratios require complete, gap-free sampled intervals.',
     drawdown: 'Drawdown and episode depth are signed fractions of the running high. Durations are elapsed 24-hour days from the most recent peak to recovery or the last mark. Ulcer is the root mean square of drawdown at displayed marks.',
@@ -98,11 +99,14 @@
   }
 
   function selection(series, cfg) {
-    let first = 0, stop = 0, exhaustedAt = null;
+    let first = 0, stop = 0, exhaustedAt = null, cutInsideDay = false;
     for (let i = 0; i < series.times.length; i++) {
       const t = timestamp(series.times[i], 'times[' + i + ']');
       if (i && t <= series.times[i - 1]) throw new RangeError('times must strictly increase');
-      if (t > cfg.end) break;
+      if (t > cfg.end) {
+        cutInsideDay = stop > 0 && dayOf(series.times[stop - 1]) === dayOf(t);
+        break;
+      }
       const e = series.equity[i];
       if (!Number.isFinite(e)) throw new TypeError('equity[' + i + '] must be finite');
       if (i === 0 && e <= 0) throw new RangeError('Opening equity must be positive');
@@ -116,7 +120,7 @@
     const base = first > 0 && first < stop ? first - 1 : first;
     return {
       times: series.times.slice(base, stop), equity: series.equity.slice(base, stop),
-      offset: first - base, sourceOpening: base === 0, exhaustedAt,
+      offset: first - base, sourceOpening: base === 0, exhaustedAt, cutInsideDay,
     };
   }
 
@@ -204,6 +208,18 @@
     return remaining === 0 || (remaining === 1 && dayOf(observedThrough) >= epochDay + distance);
   }
 
+  // A gap crossing a boundary also affects the old period if a close was still due there.
+  function gapAtPeriodEnd(time, unit, key, cfg) {
+    const day = dayOf(time);
+    if (cfg.sessions) return day < cfg.sessions[unit].get(key)?.last;
+    const date = new Date(time), month = monthNumber(date);
+    const endMonth = unit === 'month' ? date.getUTCMonth() : 11;
+    date.setUTCMonth(endMonth, daysInMonth(date.getUTCFullYear(), endMonth));
+    const end = dayOf(date.getTime());
+    if (cfg.frequency === 'daily') return cfg.sevenDay ? day < end : weekdays(day + 1, end + 1) > 0;
+    return periodKey(cfg.frequency, day, month) < periodKey(cfg.frequency, end, monthNumber(date));
+  }
+
   function makeGroup(unit, key, i, priorKey, times, equity, cfg, sourceOpening) {
     const prior = i - 1;
     const schedule = cfg.sessions && cfg.sessions[unit].get(key);
@@ -239,16 +255,20 @@
       const day = dayOf(times[i]);
       const month = day === prevDay ? prevMonth : monthNumber(new Date(times[i]));
       const year = Math.floor(month / 12);
+      const gap = day > prevDay + 1 && interval(times[i - 1], times[i], cfg) === 2;
       if (!yearGroup || yearGroup.key !== year) {
+        if (gap && yearGroup && gapAtPeriodEnd(times[i - 1], 'year', prevYear, cfg)) yearGroup.gap = true;
         yearGroup = makeGroup('year', year, i, prevYear, times, equity, cfg, sourceOpening);
         years.push(yearGroup);
       }
       if (!monthGroup || monthGroup.key !== month) {
+        if (gap && monthGroup && gapAtPeriodEnd(times[i - 1], 'month', prevMonth, cfg)) monthGroup.gap = true;
         monthGroup = makeGroup('month', month, i, prevMonth, times, equity, cfg, sourceOpening);
         months.push(monthGroup);
       }
       updateGroup(yearGroup, i, equity);
       updateGroup(monthGroup, i, equity);
+      if (gap) yearGroup.gap = monthGroup.gap = true;
       if (cfg.sessions && (i === 1 || day !== prevDay)) {
         const days = cfg.sessions.days;
         onSession = days[lowerBound(days, day, days.length)] === day;
@@ -258,7 +278,7 @@
         if (pending >= 0 && key !== lastKey) closes.push(pending);
         pending = i;
         lastKey = key;
-        yearGroup.lastSession = day;
+        yearGroup.lastSession = monthGroup.lastSession = day;
       } else {
         offSessionMarks++;
       }
@@ -367,27 +387,43 @@
     out.summary.ulcer = finite(norm / Math.sqrt(times.length - offset));
   }
 
-  function calendar(times, equity, groups, cfg, out) {
+  function calendar(times, equity, groups, cfg, cutInsideDay, out) {
     let count = 0, meanReturn = 0, meanDepth = 0;
+    const last = times.length - 1;
     function groupReturn(g) {
       return g.last > g.open ? finite(change(equity[g.open], equity[g.last])) : null;
     }
+    function coverage(g, unit, value) {
+      if (g.gap) return 'gap';
+      if (value == null || !g.coveredStart || (g.last === last && cutInsideDay)) return 'partial';
+      const end = cfg.sessions ? cfg.sessions[unit].get(g.key)?.last === g.lastSession
+        : nearBoundary(times[g.last], unit, false, cfg, times[last]);
+      return end ? 'full' : 'partial';
+    }
+    function periodResult(g, unit) {
+      const value = groupReturn(g);
+      return {
+        return: value,
+        amount: value == null ? null : finite(equity[g.last] - equity[g.open]),
+        openingTime: g.open < g.last ? times[g.open] : null,
+        closingTime: times[g.last],
+        coverage: coverage(g, unit, value)
+      };
+    }
     for (const g of groups.years) {
-      const value = groupReturn(g), depth = g.last > g.open ? finite(g.worst) : null;
-      const coveredEnd = cfg.sessions ? cfg.sessions.year.get(g.key)?.last === g.lastSession
-        : nearBoundary(times[g.last], 'year', false, cfg, times[times.length - 1]);
-      const complete = value != null && depth != null && !g.gap && g.coveredStart && coveredEnd;
-      out.years.push({ year: g.key, return: value, maxDrawdown: depth,
+      const period = periodResult(g, 'year'), depth = g.last > g.open ? finite(g.worst) : null;
+      const complete = depth != null && period.coverage === 'full';
+      out.years.push({ year: g.key, ...period, maxDrawdown: depth,
         sharpe: ratios(g.moments, cfg).sharpe, complete });
       if (complete) {
         count++;
-        meanReturn += (value - meanReturn) / count;
+        meanReturn += (period.return - meanReturn) / count;
         meanDepth += (depth - meanDepth) / count;
       }
     }
     for (const g of groups.months) {
       const year = Math.floor(g.key / 12);
-      out.months.push({ year, month: g.key - year * 12 + 1, return: groupReturn(g) });
+      out.months.push({ year, month: g.key - year * 12 + 1, ...periodResult(g, 'month') });
     }
     out.meta.completeYears = count;
     out.summary.meanYearReturn = count ? finite(meanReturn) : null;
@@ -557,7 +593,7 @@
 
   function analyze(series, options) {
     const cfg = settings(series, options);
-    const { times, equity, offset, sourceOpening, exhaustedAt } = selection(series, cfg);
+    const { times, equity, offset, sourceOpening, exhaustedAt, cutInsideDay } = selection(series, cfg);
     const last = times.length - 1;
     const summary = Object.fromEntries(summaryKeys.map((key) => [key, null]));
     const out = {
@@ -584,7 +620,7 @@
       out.meta.offSessionMarks = groups.offSessionMarks;
       const samples = sampled(times, equity, groups, cfg, out);
       Object.assign(summary, ratios(samples.all, cfg));
-      calendar(times, equity, groups, cfg, out);
+      calendar(times, equity, groups, cfg, cutInsideDay, out);
       rolling(times, equity, groups, samples, cfg, out);
       distribution(out);
     }

@@ -743,8 +743,8 @@ tbody tr:last-child th {
   color: var(--muted);
 }
 .heat {
-  table-layout: fixed;
-  min-width: 280px;
+  table-layout: auto;
+  min-width: max-content;
   border-collapse: separate;
   border-spacing: 3px;
   text-align: center;
@@ -759,7 +759,7 @@ tbody tr:last-child th {
   text-align: center;
 }
 .heat thead th {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   text-align: center;
 }
@@ -769,12 +769,32 @@ tbody tr:last-child th {
   padding: 3px 1px;
   width: 38px;
 }
+.heat th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+}
 .heat td {
   height: 25px;
   border-radius: 4px;
   background: var(--faint);
-  font-size: 9px;
+  padding-inline: 3px;
+  font-size: 11px;
   font-weight: 550;
+}
+.heat td:last-child {
+  padding-inline: 3px;
+}
+@media screen and (min-width: 1351px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  }
+}
+@media screen and (min-width: 761px) and (max-width: 1350px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .heat td[data-tip]:hover,
 .heat td[data-tip]:focus {
@@ -794,6 +814,34 @@ tbody tr:last-child th {
   width: 14px;
   height: 9px;
   border-radius: 2px;
+}
+.heat-scale .coverage-key {
+  margin-right: auto;
+}
+.heat sup {
+  font-size: .75em;
+}
+.heat thead th:last-child,
+.heat td[data-year-return],
+.heat td[data-year-average] {
+  border-inline-start: 2px solid var(--line);
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+.heat tfoot th,
+.heat tfoot td {
+  border-top: 2px solid var(--line);
+  font-weight: 650;
+}
+.heat tfoot th:first-child {
+  text-align: left;
+  padding-inline: 2px;
+}
+.heat-averages-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 8px 0 0;
 }
 .allocation-list {
   list-style: none;

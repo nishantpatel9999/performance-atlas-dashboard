@@ -78,6 +78,10 @@
     Number.isFinite(v)
       ? (sign && v > 0 ? "+" : "") + decimal(100 * v, places) + "%"
       : "—";
+  // A short sample can annualize to hundreds of digits. Keep it readable on a phone.
+  const growthPct = value => Number.isFinite(value) && Math.abs(value) >= 1e10
+    ? value.toLocaleString("en-US", { style: "percent", notation: "scientific", maximumFractionDigits: 2 })
+    : pct(value, 2);
   const date = (t) =>
     Number.isFinite(t)
       ? new Intl.DateTimeFormat("en-GB", {
@@ -240,7 +244,7 @@
     const m = a.summary;
     const row = (key, label, value, desc, cls = "") =>
       `<div class="kpi" data-metric="${key}"><div class="kpi-label">${escape(label)}</div><div class="kpi-value ${cls}">${escape(value)}</div><div class="kpi-foot">${escape(desc)}</div></div>`;
-    return `<section aria-label="Performance summary" class="kpi-strip">${row("cagr", "Annual growth (CAGR)", pct(m.cagr, 2), "Annualized compound growth", valClass(m.cagr))}${row("maxDrawdown", "Maximum drawdown", pct(m.maxDrawdown, 2), "Worst peak-to-trough loss", m.maxDrawdown < 0 ? "negative" : "")}${row("sharpe", "Sharpe ratio", decimal(m.sharpe), "Excess return per unit of risk")}${row("totalReturn", "Total return", pct(m.totalReturn, 2, true), "Selected period", valClass(m.totalReturn))}</section>`;
+    return `<section aria-label="Performance summary" class="kpi-strip">${row("cagr", "Annual growth (CAGR)", growthPct(m.cagr), "Annualized compound growth", valClass(m.cagr))}${row("maxDrawdown", "Maximum drawdown", pct(m.maxDrawdown, 2), "Worst peak-to-trough loss", m.maxDrawdown < 0 ? "negative" : "")}${row("sharpe", "Sharpe ratio", decimal(m.sharpe), "Excess return per unit of risk")}${row("totalReturn", "Total return", pct(m.totalReturn, 2, true), "Selected period", valClass(m.totalReturn))}</section>`;
   }
   const gapLimit = (s) =>
     (({ daily: 10, weekly: 21, monthly: 65, annual: 750 })[s.frequency] || 10) *
@@ -347,56 +351,76 @@
     "Nov",
     "Dec",
   ];
-  function heatmap(a, compact = false, amounts = null) {
-    let years = [...new Set(a.months.map((m) => m.year))].reverse();
-    if (compact) years = years.slice(0, 4);
-    if (!years.length)
-      return empty(
-        "No monthly returns",
-        "Supply at least two dated equity marks.",
-      );
-    const months = new Map(
-      (amounts?.months || a.months).map((m) => [m.year + "-" + m.month, m]),
-    );
-    let max = 0;
-    for (const m of a.months)
-      if (Number.isFinite(m.return)) max = Math.max(max, Math.abs(m.return));
-    const cells = years
-      .map(
-        (y) =>
-          `<tr><th scope="row">${y}</th>${monthNames
-            .map((name, j) => {
-              const month = months.get(y + "-" + (j + 1)),
-                v = month?.return;
-              if (!Number.isFinite(v))
-                return '<td aria-label="No observation">·</td>';
-              const color = v < 0 ? "var(--loss)" : "var(--gain)",
-                strength =
-                  v === 0
-                    ? 0
-                    : Math.round(10 + 34 * Math.sqrt(Math.abs(v) / (max || 1)));
-              const amount =
-                amounts && Number.isFinite(month.amount)
-                  ? decimal(month.amount, 2)
-                  : null;
-              const title = escape(
-                `${name} ${y} · ${pct(v, 2, true)}` +
-                  (amount === null ? "" : ` · ${amount} ${amounts.unit}`),
-              );
-              const label = compact
-                ? v === 0
-                  ? "0"
-                  : v < 0
-                    ? "−"
-                    : "+"
-                : pct(v, 1);
-              return `<td data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))">${label}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
-            })
-            .join("")}</tr>`,
-      )
-      .join("");
-    const layout = amounts ? ' style="table-layout:auto"' : "";
-    return `<div class="heat-wrap"><table class="heat"${layout}><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col" title="${m}">${compact ? m[0] : m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
+  const historyAverages = new WeakMap();
+  function fullHistoryAverages(s) {
+    if (!historyAverages.has(s)) {
+      const full = analyze(s, { ...options(s), start: s.times[0], end: s.times.at(-1) });
+      historyAverages.set(s, D.calendarAverages(full));
+    }
+    return historyAverages.get(s);
+  }
+
+  function heatCell(attribute, period, heading, description, scale, unit) {
+    const coverage = period?.coverage;
+    const sampleSize = period?.count;
+    const info = attribute +
+      (coverage ? ` data-coverage="${coverage}"` : "") +
+      (Number.isInteger(sampleSize) ? ` data-count="${sampleSize}"` : "");
+    const value = period?.return;
+    if (!Number.isFinite(value)) {
+      const title = escape(`${heading} · No measured return` + (description ? ` · ${description}` : ""));
+      return `<td ${info} title="${title}" aria-label="${title}">—</td>`;
+    }
+    const magnitude = Math.abs(100 * value);
+    const places = magnitude > 0 && magnitude < 0.005
+      ? Math.min(12, -Math.floor(Math.log10(magnitude))) : 2;
+    const label = pct(value, places, true);
+    const amount = unit && Number.isFinite(period.amount) ? decimal(period.amount, 2) : null;
+    const boundaries = Number.isFinite(period.openingTime) && Number.isFinite(period.closingTime)
+      ? ` · ${iso(period.openingTime)} to ${iso(period.closingTime)}` : "";
+    const title = escape(`${heading} · ${label}` + (amount === null ? "" : ` · ${amount} ${unit}`) +
+      ` · ${description}${boundaries}`);
+    const marker = coverage === "gap" ? "‡" : coverage === "partial" ? "†" : "";
+    const color = value < 0 ? "var(--loss)" : "var(--gain)";
+    const strength = value === 0 ? 0 : Math.round(10 + 34 * Math.sqrt(Math.min(1, Math.abs(value) / (scale || 1))));
+    const amountAttr = amount === null ? "" : ` data-amount="${period.amount}"`;
+    return `<td ${info} data-return="${value}"${amountAttr} data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))"><span class="heat-value">${label}</span>${marker ? `<sup>${marker}</sup>` : ""}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
+  }
+
+  function heatmap(s, a, compact = false, amounts = null) {
+    const years = (compact ? a.years.slice(-4) : a.years.slice()).reverse();
+    if (!years.length) return empty("No monthly returns", "Supply at least two dated equity marks.");
+    const months = new Map((amounts?.months || a.months).map(m => [m.year * 12 + m.month, m]));
+    const averages = fullHistoryAverages(s);
+    const unit = amounts?.unit;
+    const maxReturn = periods => periods.reduce((max, p) =>
+      Number.isFinite(p.return) ? Math.max(max, Math.abs(p.return)) : max, 0);
+    const monthScale = maxReturn(a.months), yearScale = maxReturn(a.years);
+    const coverageText = (p, name) => p?.coverage === "gap" ? "Missing observations inside the period"
+      : p?.coverage === "partial" ? `Partial ${name}` : p?.coverage === "full" ? `Full ${name}` : "";
+    const rows = years.map(y => {
+      const cells = monthNames.map((name, j) => {
+        const month = j + 1, period = months.get(y.year * 12 + month);
+        const key = `${y.year}-${String(month).padStart(2, "0")}`;
+        return heatCell(`data-month="${key}"`, period, `${name} ${y.year}`,
+          coverageText(period, "month"), monthScale, unit);
+      });
+      cells.push(heatCell(`data-year-return="${y.year}"`, y, `${y.year} year return`,
+        coverageText(y, "year"), yearScale, unit));
+      return `<tr><th scope="row">${y.year}</th>${cells.join("")}</tr>`;
+    });
+    function meanCell(attribute, period, name, scale, frequency) {
+      const samples = `${period.count} complete ${frequency}${period.count === 1 ? "" : "s"} across the full history`;
+      return heatCell(attribute, period, name + " average", samples, scale, unit);
+    }
+    const footer = averages.months.map((p, i) =>
+      meanCell(`data-month-average="${i + 1}"`, p, monthNames[i], monthScale, "month"));
+    footer.push(meanCell("data-year-average", averages.year, "Calendar-year", yearScale, "year"));
+    const shownYears = new Set(years.map(y => y.year));
+    const shown = years.concat(a.months.filter(m => shownYears.has(m.year)));
+    const notes = [shown.some(m => m.coverage === "partial") ? "† Partial period" : "",
+      shown.some(m => m.coverage === "gap") ? "‡ Missing observations" : ""].filter(Boolean).join(" · ");
+    return `<div class="heat-wrap" role="region" aria-label="Monthly returns by year" tabindex="0"><table class="heat" data-monthly-returns aria-label="Monthly and yearly returns in percent"><thead><tr><th scope="col">Year</th>${monthNames.map(m => `<th scope="col">${m}</th>`).join("")}<th scope="col">Year return</th></tr></thead><tbody>${rows.join("")}</tbody><tfoot><tr><th scope="row">Average</th>${footer.join("")}</tr></tfoot></table></div><p class="heat-averages-note">Averages use complete months or years across the full history, including 0% returns.</p><div class="heat-scale"><span class="coverage-key">${notes}</span><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
   }
   function profile(a, s) {
     const m = a.summary,
@@ -422,7 +446,7 @@
             decimal(measures.cumulativeLogReturn, 3),
             "ln(closing equity / opening equity). Both equity values must be positive.",
           ],
-          ["Compound annual growth (CAGR)", pct(m.cagr, 2)],
+          ["Compound annual growth (CAGR)", growthPct(m.cagr)],
           ["Mean full-year return", pct(m.meanYearReturn, 2)],
           ["Change in equity", cur(s, gain, 2)],
           ["Opening equity", cur(s, m.startEquity, 2)],
@@ -482,7 +506,7 @@
   function overview(s, a) {
     return (
       kpis(s, a) +
-      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Calendar-month performance at a glance.", heatmap(a, true), linkView("calendar", "Explore"))}</div>` +
+      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two calendar-preview">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Monthly change in equity. Up to four recent years.", heatmap(s, a, true), linkView("calendar", "Explore"))}</div>` +
       profile(a, s)
     );
   }
@@ -666,7 +690,7 @@
       .reverse()
       .map((y) => [
         String(y.year),
-        y.complete ? "Full year" : "Partial",
+        y.coverage === "gap" ? "Missing observations" : y.complete ? "Full year" : "Partial",
         signedCell(y.return),
         signedCell(y.maxDrawdown),
         decimal(y.sharpe),
@@ -680,15 +704,15 @@
           ["Mean calendar-year return", pct(a.summary.meanYearReturn, 2)],
           ["Mean yearly maximum drawdown", pct(a.summary.meanYearDrawdown, 2)],
           ["Complete years", count(a.years.filter((y) => y.complete).length)],
-          ["Full-period CAGR", pct(a.summary.cagr, 2)],
+          ["Full-period CAGR", growthPct(a.summary.cagr)],
         ]),
       )}</div>` +
       panel(
         "Monthly return heatmap",
-        "The first line shows the observed monthly return. " +
+        "Each cell shows the percentage return. Year return uses the opening and closing equity for the selected part of that year. " +
           amountNote +
-          " A dot marks missing data.",
-        heatmap(a, false, amounts),
+          " A dash marks an unavailable value.",
+        heatmap(s, a, false, amounts),
         "",
         "standalone",
       ) +
@@ -1346,7 +1370,7 @@
           ["Series", "CAGR", "Max drawdown", "Sharpe ratio", "Total return"],
           analyses.map((a, i) => [
             escape(pair[i].name),
-            pct(a.summary.cagr, 2),
+            growthPct(a.summary.cagr),
             pct(a.summary.maxDrawdown, 2),
             decimal(a.summary.sharpe),
             signedCell(a.summary.totalReturn),
@@ -1497,7 +1521,7 @@
           ? date(m.opening) + " – " + date(m.end)
           : "—",
         pct(m.totalReturn, 2),
-        pct(m.cagr, 2),
+        growthPct(m.cagr),
         pct(m.maxDrawdown, 2),
         decimal(m.sharpe),
       ];

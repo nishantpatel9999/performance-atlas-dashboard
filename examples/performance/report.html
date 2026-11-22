@@ -798,8 +798,8 @@ tbody tr:last-child th {
   color: var(--muted);
 }
 .heat {
-  table-layout: fixed;
-  min-width: 280px;
+  table-layout: auto;
+  min-width: max-content;
   border-collapse: separate;
   border-spacing: 3px;
   text-align: center;
@@ -814,7 +814,7 @@ tbody tr:last-child th {
   text-align: center;
 }
 .heat thead th {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   text-align: center;
 }
@@ -824,12 +824,32 @@ tbody tr:last-child th {
   padding: 3px 1px;
   width: 38px;
 }
+.heat th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+}
 .heat td {
   height: 25px;
   border-radius: 4px;
   background: var(--faint);
-  font-size: 9px;
+  padding-inline: 3px;
+  font-size: 11px;
   font-weight: 550;
+}
+.heat td:last-child {
+  padding-inline: 3px;
+}
+@media screen and (min-width: 1351px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  }
+}
+@media screen and (min-width: 761px) and (max-width: 1350px) {
+  .grid-two.calendar-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .heat td[data-tip]:hover,
 .heat td[data-tip]:focus {
@@ -849,6 +869,34 @@ tbody tr:last-child th {
   width: 14px;
   height: 9px;
   border-radius: 2px;
+}
+.heat-scale .coverage-key {
+  margin-right: auto;
+}
+.heat sup {
+  font-size: .75em;
+}
+.heat thead th:last-child,
+.heat td[data-year-return],
+.heat td[data-year-average] {
+  border-inline-start: 2px solid var(--line);
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+.heat tfoot th,
+.heat tfoot td {
+  border-top: 2px solid var(--line);
+  font-weight: 650;
+}
+.heat tfoot th:first-child {
+  text-align: left;
+  padding-inline: 2px;
+}
+.heat-averages-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 8px 0 0;
 }
 .allocation-list {
   list-style: none;
@@ -2361,6 +2409,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
     sessions: 'For daily sampling, sessionDates lists the expected UTC trading dates. The caller supplies the full calendar for the span. Only listed days produce daily closes. Funding can precede the first session. All supplied marks count for equity and drawdown. A missed scheduled session gives a null interval at the next close.',
     gaps: 'Without a supplied calendar, daily series with at least 360 periods/year require adjacent UTC dates. Other daily series allow weekends and one intervening weekday for a possible holiday. Coarser samples require adjacent calendar buckets. Summary ratios use finite intervals. The gaps list records omitted intervals.',
     calendar: 'Each month and year uses its own observed opening and closing equity. A prior period close can supply opening capital. A partial period with just one unanchored mark has a null return. Full-year means need both boundaries and uninterrupted coverage at the declared frequency. A supplied calendar sets the first and last sessions. Without one, seven-day markets require exact dates. The weekday rule permits one possible holiday. A year ending one weekday early needs subsequent observations through the boundary.',
+    monthCoverage: 'Monthly openingTime and closingTime identify the actual marks. A lone unanchored close has a null openingTime. Coverage is full at both boundaries, partial at a cut or unobserved boundary, and gap when a missing interval affects the month. A gap can still have an observed endpoint return. Months without a return observation have no row.',
     rolling: 'Rolling values are as of each sampled close. Daily windows subtract whole UTC months and clamp the day, retaining the close time. Drawdown uses marks inside the inclusive calendar window. Return uses the last actual valuation at or before the cutoff. A supplied calendar permits a closure of any length if no intervening session was due. Without a calendar, the opening must be within one day (seven-day series) or four days and the bracketing interval must be admissible.',
     rollingCloses: 'Monthly windows open at the last observed close in the month N months earlier, including its actual date and time. Weekly windows open at the last weekly close at or before the clamped cutoff, in its week or the immediately preceding observed week. Both use every raw mark from that opening through the ending close for drawdown and Calmar. openingTimes identifies the actual return opening. Missing boundary buckets stay unavailable. Rolling ratios require complete, gap-free sampled intervals.',
     drawdown: 'Drawdown and episode depth are signed fractions of the running high. Durations are elapsed 24-hour days from the most recent peak to recovery or the last mark. Ulcer is the root mean square of drawdown at displayed marks.',
@@ -2437,11 +2486,14 @@ html:has(#series-picker[open]) { overflow: hidden; }
   }
 
   function selection(series, cfg) {
-    let first = 0, stop = 0, exhaustedAt = null;
+    let first = 0, stop = 0, exhaustedAt = null, cutInsideDay = false;
     for (let i = 0; i < series.times.length; i++) {
       const t = timestamp(series.times[i], 'times[' + i + ']');
       if (i && t <= series.times[i - 1]) throw new RangeError('times must strictly increase');
-      if (t > cfg.end) break;
+      if (t > cfg.end) {
+        cutInsideDay = stop > 0 && dayOf(series.times[stop - 1]) === dayOf(t);
+        break;
+      }
       const e = series.equity[i];
       if (!Number.isFinite(e)) throw new TypeError('equity[' + i + '] must be finite');
       if (i === 0 && e <= 0) throw new RangeError('Opening equity must be positive');
@@ -2455,7 +2507,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
     const base = first > 0 && first < stop ? first - 1 : first;
     return {
       times: series.times.slice(base, stop), equity: series.equity.slice(base, stop),
-      offset: first - base, sourceOpening: base === 0, exhaustedAt,
+      offset: first - base, sourceOpening: base === 0, exhaustedAt, cutInsideDay,
     };
   }
 
@@ -2543,6 +2595,18 @@ html:has(#series-picker[open]) { overflow: hidden; }
     return remaining === 0 || (remaining === 1 && dayOf(observedThrough) >= epochDay + distance);
   }
 
+  // A gap crossing a boundary also affects the old period if a close was still due there.
+  function gapAtPeriodEnd(time, unit, key, cfg) {
+    const day = dayOf(time);
+    if (cfg.sessions) return day < cfg.sessions[unit].get(key)?.last;
+    const date = new Date(time), month = monthNumber(date);
+    const endMonth = unit === 'month' ? date.getUTCMonth() : 11;
+    date.setUTCMonth(endMonth, daysInMonth(date.getUTCFullYear(), endMonth));
+    const end = dayOf(date.getTime());
+    if (cfg.frequency === 'daily') return cfg.sevenDay ? day < end : weekdays(day + 1, end + 1) > 0;
+    return periodKey(cfg.frequency, day, month) < periodKey(cfg.frequency, end, monthNumber(date));
+  }
+
   function makeGroup(unit, key, i, priorKey, times, equity, cfg, sourceOpening) {
     const prior = i - 1;
     const schedule = cfg.sessions && cfg.sessions[unit].get(key);
@@ -2578,16 +2642,20 @@ html:has(#series-picker[open]) { overflow: hidden; }
       const day = dayOf(times[i]);
       const month = day === prevDay ? prevMonth : monthNumber(new Date(times[i]));
       const year = Math.floor(month / 12);
+      const gap = day > prevDay + 1 && interval(times[i - 1], times[i], cfg) === 2;
       if (!yearGroup || yearGroup.key !== year) {
+        if (gap && yearGroup && gapAtPeriodEnd(times[i - 1], 'year', prevYear, cfg)) yearGroup.gap = true;
         yearGroup = makeGroup('year', year, i, prevYear, times, equity, cfg, sourceOpening);
         years.push(yearGroup);
       }
       if (!monthGroup || monthGroup.key !== month) {
+        if (gap && monthGroup && gapAtPeriodEnd(times[i - 1], 'month', prevMonth, cfg)) monthGroup.gap = true;
         monthGroup = makeGroup('month', month, i, prevMonth, times, equity, cfg, sourceOpening);
         months.push(monthGroup);
       }
       updateGroup(yearGroup, i, equity);
       updateGroup(monthGroup, i, equity);
+      if (gap) yearGroup.gap = monthGroup.gap = true;
       if (cfg.sessions && (i === 1 || day !== prevDay)) {
         const days = cfg.sessions.days;
         onSession = days[lowerBound(days, day, days.length)] === day;
@@ -2597,7 +2665,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
         if (pending >= 0 && key !== lastKey) closes.push(pending);
         pending = i;
         lastKey = key;
-        yearGroup.lastSession = day;
+        yearGroup.lastSession = monthGroup.lastSession = day;
       } else {
         offSessionMarks++;
       }
@@ -2706,27 +2774,43 @@ html:has(#series-picker[open]) { overflow: hidden; }
     out.summary.ulcer = finite(norm / Math.sqrt(times.length - offset));
   }
 
-  function calendar(times, equity, groups, cfg, out) {
+  function calendar(times, equity, groups, cfg, cutInsideDay, out) {
     let count = 0, meanReturn = 0, meanDepth = 0;
+    const last = times.length - 1;
     function groupReturn(g) {
       return g.last > g.open ? finite(change(equity[g.open], equity[g.last])) : null;
     }
+    function coverage(g, unit, value) {
+      if (g.gap) return 'gap';
+      if (value == null || !g.coveredStart || (g.last === last && cutInsideDay)) return 'partial';
+      const end = cfg.sessions ? cfg.sessions[unit].get(g.key)?.last === g.lastSession
+        : nearBoundary(times[g.last], unit, false, cfg, times[last]);
+      return end ? 'full' : 'partial';
+    }
+    function periodResult(g, unit) {
+      const value = groupReturn(g);
+      return {
+        return: value,
+        amount: value == null ? null : finite(equity[g.last] - equity[g.open]),
+        openingTime: g.open < g.last ? times[g.open] : null,
+        closingTime: times[g.last],
+        coverage: coverage(g, unit, value)
+      };
+    }
     for (const g of groups.years) {
-      const value = groupReturn(g), depth = g.last > g.open ? finite(g.worst) : null;
-      const coveredEnd = cfg.sessions ? cfg.sessions.year.get(g.key)?.last === g.lastSession
-        : nearBoundary(times[g.last], 'year', false, cfg, times[times.length - 1]);
-      const complete = value != null && depth != null && !g.gap && g.coveredStart && coveredEnd;
-      out.years.push({ year: g.key, return: value, maxDrawdown: depth,
+      const period = periodResult(g, 'year'), depth = g.last > g.open ? finite(g.worst) : null;
+      const complete = depth != null && period.coverage === 'full';
+      out.years.push({ year: g.key, ...period, maxDrawdown: depth,
         sharpe: ratios(g.moments, cfg).sharpe, complete });
       if (complete) {
         count++;
-        meanReturn += (value - meanReturn) / count;
+        meanReturn += (period.return - meanReturn) / count;
         meanDepth += (depth - meanDepth) / count;
       }
     }
     for (const g of groups.months) {
       const year = Math.floor(g.key / 12);
-      out.months.push({ year, month: g.key - year * 12 + 1, return: groupReturn(g) });
+      out.months.push({ year, month: g.key - year * 12 + 1, ...periodResult(g, 'month') });
     }
     out.meta.completeYears = count;
     out.summary.meanYearReturn = count ? finite(meanReturn) : null;
@@ -2896,7 +2980,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
 
   function analyze(series, options) {
     const cfg = settings(series, options);
-    const { times, equity, offset, sourceOpening, exhaustedAt } = selection(series, cfg);
+    const { times, equity, offset, sourceOpening, exhaustedAt, cutInsideDay } = selection(series, cfg);
     const last = times.length - 1;
     const summary = Object.fromEntries(summaryKeys.map((key) => [key, null]));
     const out = {
@@ -2923,7 +3007,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
       out.meta.offSessionMarks = groups.offSessionMarks;
       const samples = sampled(times, equity, groups, cfg, out);
       Object.assign(summary, ratios(samples.all, cfg));
-      calendar(times, equity, groups, cfg, out);
+      calendar(times, equity, groups, cfg, cutInsideDay, out);
       rolling(times, equity, groups, samples, cfg, out);
       distribution(out);
     }
@@ -3245,10 +3329,13 @@ html:has(#series-picker[open]) { overflow: hidden; }
   /** Subtract actual marks at the calendar return's boundaries. Division by
    *  (1 + return) cannot recover opening capital after a total loss. */
   function monthlyAmounts(series, analysis) {
-    const { times, equity } = analysis, sessions = precedingSessions(series);
     const unitized = /\b(?:uniti[sz]ed|per[ -](?:unit|share))\b/i.test(series.accounting || "");
     const unit = series.currency === "INDEX" ? "index points"
       : unitized ? series.currency + " per unit" : series.currency;
+    if (analysis.months.every(row => Object.hasOwn(row, "amount"))) {
+      return { unit, months: analysis.months.map(row => ({ ...row })) };
+    }
+    const { times, equity } = analysis, sessions = precedingSessions(series);
     let priorTime = analysis.meta.baselineTime, priorEquity = analysis.summary.startEquity;
     let i = times[0] === priorTime ? 1 : 0;
     const months = analysis.months.map(row => {
@@ -3264,6 +3351,22 @@ html:has(#series-picker[open]) { overflow: hidden; }
       return { ...row, amount: finite(row.return) ? numberOrNull(priorEquity - open) : null };
     });
     return { unit, months };
+  }
+
+  /** Equal-weight means of complete calendar periods from an unfiltered history. */
+  function calendarAverages(history) {
+    function average(periods) {
+      const count = periods.length;
+      if (!count) return { count: 0, return: null, amount: null };
+      const mean = key => periods.every(p => finite(p[key]))
+        ? numberOrNull(periods.reduce((sum, p) => sum + p[key] / count, 0)) : null;
+      return { count, return: mean("return"), amount: mean("amount") };
+    }
+    const byMonth = Array.from({ length: 12 }, () => []);
+    for (const period of history.months) {
+      if (period.coverage === "full" && finite(period.return)) byMonth[period.month - 1].push(period);
+    }
+    return { months: byMonth.map(average), year: average(history.years.filter(p => p.complete && finite(p.return))) };
   }
 
   /** Count positive, flat and losing historical windows at the declared closes.
@@ -3761,7 +3864,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
   }
 
   return Object.freeze({ benchmark, trades, tails, correlationMatrix, strategyGroups, attribution, evidenceCoverage,
-    returnMeasures, monthlyAmounts, profitableWindows });
+    returnMeasures, monthlyAmounts, calendarAverages, profitableWindows });
 });
 
 </script>
@@ -5144,6 +5247,10 @@ html:has(#series-picker[open]) { overflow: hidden; }
     Number.isFinite(v)
       ? (sign && v > 0 ? "+" : "") + decimal(100 * v, places) + "%"
       : "—";
+  // A short sample can annualize to hundreds of digits. Keep it readable on a phone.
+  const growthPct = value => Number.isFinite(value) && Math.abs(value) >= 1e10
+    ? value.toLocaleString("en-US", { style: "percent", notation: "scientific", maximumFractionDigits: 2 })
+    : pct(value, 2);
   const date = (t) =>
     Number.isFinite(t)
       ? new Intl.DateTimeFormat("en-GB", {
@@ -5306,7 +5413,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
     const m = a.summary;
     const row = (key, label, value, desc, cls = "") =>
       `<div class="kpi" data-metric="${key}"><div class="kpi-label">${escape(label)}</div><div class="kpi-value ${cls}">${escape(value)}</div><div class="kpi-foot">${escape(desc)}</div></div>`;
-    return `<section aria-label="Performance summary" class="kpi-strip">${row("cagr", "Annual growth (CAGR)", pct(m.cagr, 2), "Annualized compound growth", valClass(m.cagr))}${row("maxDrawdown", "Maximum drawdown", pct(m.maxDrawdown, 2), "Worst peak-to-trough loss", m.maxDrawdown < 0 ? "negative" : "")}${row("sharpe", "Sharpe ratio", decimal(m.sharpe), "Excess return per unit of risk")}${row("totalReturn", "Total return", pct(m.totalReturn, 2, true), "Selected period", valClass(m.totalReturn))}</section>`;
+    return `<section aria-label="Performance summary" class="kpi-strip">${row("cagr", "Annual growth (CAGR)", growthPct(m.cagr), "Annualized compound growth", valClass(m.cagr))}${row("maxDrawdown", "Maximum drawdown", pct(m.maxDrawdown, 2), "Worst peak-to-trough loss", m.maxDrawdown < 0 ? "negative" : "")}${row("sharpe", "Sharpe ratio", decimal(m.sharpe), "Excess return per unit of risk")}${row("totalReturn", "Total return", pct(m.totalReturn, 2, true), "Selected period", valClass(m.totalReturn))}</section>`;
   }
   const gapLimit = (s) =>
     (({ daily: 10, weekly: 21, monthly: 65, annual: 750 })[s.frequency] || 10) *
@@ -5413,56 +5520,76 @@ html:has(#series-picker[open]) { overflow: hidden; }
     "Nov",
     "Dec",
   ];
-  function heatmap(a, compact = false, amounts = null) {
-    let years = [...new Set(a.months.map((m) => m.year))].reverse();
-    if (compact) years = years.slice(0, 4);
-    if (!years.length)
-      return empty(
-        "No monthly returns",
-        "Supply at least two dated equity marks.",
-      );
-    const months = new Map(
-      (amounts?.months || a.months).map((m) => [m.year + "-" + m.month, m]),
-    );
-    let max = 0;
-    for (const m of a.months)
-      if (Number.isFinite(m.return)) max = Math.max(max, Math.abs(m.return));
-    const cells = years
-      .map(
-        (y) =>
-          `<tr><th scope="row">${y}</th>${monthNames
-            .map((name, j) => {
-              const month = months.get(y + "-" + (j + 1)),
-                v = month?.return;
-              if (!Number.isFinite(v))
-                return '<td aria-label="No observation">·</td>';
-              const color = v < 0 ? "var(--loss)" : "var(--gain)",
-                strength =
-                  v === 0
-                    ? 0
-                    : Math.round(10 + 34 * Math.sqrt(Math.abs(v) / (max || 1)));
-              const amount =
-                amounts && Number.isFinite(month.amount)
-                  ? decimal(month.amount, 2)
-                  : null;
-              const title = escape(
-                `${name} ${y} · ${pct(v, 2, true)}` +
-                  (amount === null ? "" : ` · ${amount} ${amounts.unit}`),
-              );
-              const label = compact
-                ? v === 0
-                  ? "0"
-                  : v < 0
-                    ? "−"
-                    : "+"
-                : pct(v, 1);
-              return `<td data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))">${label}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
-            })
-            .join("")}</tr>`,
-      )
-      .join("");
-    const layout = amounts ? ' style="table-layout:auto"' : "";
-    return `<div class="heat-wrap"><table class="heat"${layout}><thead><tr><th scope="col">Year</th>${monthNames.map((m) => `<th scope="col" title="${m}">${compact ? m[0] : m}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table></div><div class="heat-scale"><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
+  const historyAverages = new WeakMap();
+  function fullHistoryAverages(s) {
+    if (!historyAverages.has(s)) {
+      const full = analyze(s, { ...options(s), start: s.times[0], end: s.times.at(-1) });
+      historyAverages.set(s, D.calendarAverages(full));
+    }
+    return historyAverages.get(s);
+  }
+
+  function heatCell(attribute, period, heading, description, scale, unit) {
+    const coverage = period?.coverage;
+    const sampleSize = period?.count;
+    const info = attribute +
+      (coverage ? ` data-coverage="${coverage}"` : "") +
+      (Number.isInteger(sampleSize) ? ` data-count="${sampleSize}"` : "");
+    const value = period?.return;
+    if (!Number.isFinite(value)) {
+      const title = escape(`${heading} · No measured return` + (description ? ` · ${description}` : ""));
+      return `<td ${info} title="${title}" aria-label="${title}">—</td>`;
+    }
+    const magnitude = Math.abs(100 * value);
+    const places = magnitude > 0 && magnitude < 0.005
+      ? Math.min(12, -Math.floor(Math.log10(magnitude))) : 2;
+    const label = pct(value, places, true);
+    const amount = unit && Number.isFinite(period.amount) ? decimal(period.amount, 2) : null;
+    const boundaries = Number.isFinite(period.openingTime) && Number.isFinite(period.closingTime)
+      ? ` · ${iso(period.openingTime)} to ${iso(period.closingTime)}` : "";
+    const title = escape(`${heading} · ${label}` + (amount === null ? "" : ` · ${amount} ${unit}`) +
+      ` · ${description}${boundaries}`);
+    const marker = coverage === "gap" ? "‡" : coverage === "partial" ? "†" : "";
+    const color = value < 0 ? "var(--loss)" : "var(--gain)";
+    const strength = value === 0 ? 0 : Math.round(10 + 34 * Math.sqrt(Math.min(1, Math.abs(value) / (scale || 1))));
+    const amountAttr = amount === null ? "" : ` data-amount="${period.amount}"`;
+    return `<td ${info} data-return="${value}"${amountAttr} data-tip="${title}" title="${title}" aria-label="${title}" tabindex="0" style="background:color-mix(in srgb, ${color} ${strength}%, var(--faint))"><span class="heat-value">${label}</span>${marker ? `<sup>${marker}</sup>` : ""}${amount === null ? "" : `<br><small>${amount}</small>`}</td>`;
+  }
+
+  function heatmap(s, a, compact = false, amounts = null) {
+    const years = (compact ? a.years.slice(-4) : a.years.slice()).reverse();
+    if (!years.length) return empty("No monthly returns", "Supply at least two dated equity marks.");
+    const months = new Map((amounts?.months || a.months).map(m => [m.year * 12 + m.month, m]));
+    const averages = fullHistoryAverages(s);
+    const unit = amounts?.unit;
+    const maxReturn = periods => periods.reduce((max, p) =>
+      Number.isFinite(p.return) ? Math.max(max, Math.abs(p.return)) : max, 0);
+    const monthScale = maxReturn(a.months), yearScale = maxReturn(a.years);
+    const coverageText = (p, name) => p?.coverage === "gap" ? "Missing observations inside the period"
+      : p?.coverage === "partial" ? `Partial ${name}` : p?.coverage === "full" ? `Full ${name}` : "";
+    const rows = years.map(y => {
+      const cells = monthNames.map((name, j) => {
+        const month = j + 1, period = months.get(y.year * 12 + month);
+        const key = `${y.year}-${String(month).padStart(2, "0")}`;
+        return heatCell(`data-month="${key}"`, period, `${name} ${y.year}`,
+          coverageText(period, "month"), monthScale, unit);
+      });
+      cells.push(heatCell(`data-year-return="${y.year}"`, y, `${y.year} year return`,
+        coverageText(y, "year"), yearScale, unit));
+      return `<tr><th scope="row">${y.year}</th>${cells.join("")}</tr>`;
+    });
+    function meanCell(attribute, period, name, scale, frequency) {
+      const samples = `${period.count} complete ${frequency}${period.count === 1 ? "" : "s"} across the full history`;
+      return heatCell(attribute, period, name + " average", samples, scale, unit);
+    }
+    const footer = averages.months.map((p, i) =>
+      meanCell(`data-month-average="${i + 1}"`, p, monthNames[i], monthScale, "month"));
+    footer.push(meanCell("data-year-average", averages.year, "Calendar-year", yearScale, "year"));
+    const shownYears = new Set(years.map(y => y.year));
+    const shown = years.concat(a.months.filter(m => shownYears.has(m.year)));
+    const notes = [shown.some(m => m.coverage === "partial") ? "† Partial period" : "",
+      shown.some(m => m.coverage === "gap") ? "‡ Missing observations" : ""].filter(Boolean).join(" · ");
+    return `<div class="heat-wrap" role="region" aria-label="Monthly returns by year" tabindex="0"><table class="heat" data-monthly-returns aria-label="Monthly and yearly returns in percent"><thead><tr><th scope="col">Year</th>${monthNames.map(m => `<th scope="col">${m}</th>`).join("")}<th scope="col">Year return</th></tr></thead><tbody>${rows.join("")}</tbody><tfoot><tr><th scope="row">Average</th>${footer.join("")}</tr></tfoot></table></div><p class="heat-averages-note">Averages use complete months or years across the full history, including 0% returns.</p><div class="heat-scale"><span class="coverage-key">${notes}</span><span>Loss</span><i style="background:var(--loss)"></i><i style="background:var(--faint)"></i><i style="background:var(--gain)"></i><span>Gain</span></div>`;
   }
   function profile(a, s) {
     const m = a.summary,
@@ -5488,7 +5615,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
             decimal(measures.cumulativeLogReturn, 3),
             "ln(closing equity / opening equity). Both equity values must be positive.",
           ],
-          ["Compound annual growth (CAGR)", pct(m.cagr, 2)],
+          ["Compound annual growth (CAGR)", growthPct(m.cagr)],
           ["Mean full-year return", pct(m.meanYearReturn, 2)],
           ["Change in equity", cur(s, gain, 2)],
           ["Opening equity", cur(s, m.startEquity, 2)],
@@ -5548,7 +5675,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
   function overview(s, a) {
     return (
       kpis(s, a) +
-      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Calendar-month performance at a glance.", heatmap(a, true), linkView("calendar", "Explore"))}</div>` +
+      `<div class="grid-hero">${equityPanel(s, a)}${annualPanel(a, true)}</div><div class="grid-two calendar-preview">${drawdowns(s, a, "dd-preview", false)}${panel("Monthly returns", "Monthly change in equity. Up to four recent years.", heatmap(s, a, true), linkView("calendar", "Explore"))}</div>` +
       profile(a, s)
     );
   }
@@ -5732,7 +5859,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
       .reverse()
       .map((y) => [
         String(y.year),
-        y.complete ? "Full year" : "Partial",
+        y.coverage === "gap" ? "Missing observations" : y.complete ? "Full year" : "Partial",
         signedCell(y.return),
         signedCell(y.maxDrawdown),
         decimal(y.sharpe),
@@ -5746,15 +5873,15 @@ html:has(#series-picker[open]) { overflow: hidden; }
           ["Mean calendar-year return", pct(a.summary.meanYearReturn, 2)],
           ["Mean yearly maximum drawdown", pct(a.summary.meanYearDrawdown, 2)],
           ["Complete years", count(a.years.filter((y) => y.complete).length)],
-          ["Full-period CAGR", pct(a.summary.cagr, 2)],
+          ["Full-period CAGR", growthPct(a.summary.cagr)],
         ]),
       )}</div>` +
       panel(
         "Monthly return heatmap",
-        "The first line shows the observed monthly return. " +
+        "Each cell shows the percentage return. Year return uses the opening and closing equity for the selected part of that year. " +
           amountNote +
-          " A dot marks missing data.",
-        heatmap(a, false, amounts),
+          " A dash marks an unavailable value.",
+        heatmap(s, a, false, amounts),
         "",
         "standalone",
       ) +
@@ -6412,7 +6539,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
           ["Series", "CAGR", "Max drawdown", "Sharpe ratio", "Total return"],
           analyses.map((a, i) => [
             escape(pair[i].name),
-            pct(a.summary.cagr, 2),
+            growthPct(a.summary.cagr),
             pct(a.summary.maxDrawdown, 2),
             decimal(a.summary.sharpe),
             signedCell(a.summary.totalReturn),
@@ -6563,7 +6690,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
           ? date(m.opening) + " – " + date(m.end)
           : "—",
         pct(m.totalReturn, 2),
-        pct(m.cagr, 2),
+        growthPct(m.cagr),
         pct(m.maxDrawdown, 2),
         decimal(m.sharpe),
       ];
