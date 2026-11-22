@@ -1044,11 +1044,31 @@ tbody tr:last-child th {
 }
 footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 15px;
   font-size: 10.5px;
   color: var(--muted);
   padding-top: 15px;
+  row-gap: 6px;
+}
+#atlas-build-info {
+  flex-basis: 100%;
+  min-width: 0;
+}
+#atlas-build-info summary {
+  width: fit-content;
+  cursor: pointer;
+}
+#atlas-build-info dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+#atlas-build-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 footer span:first-child {
   font-weight: 650;
@@ -2366,6 +2386,7 @@ html:has(#series-picker[open]) { overflow: hidden; }
         </details>
         <footer>
           <span>Performance Atlas Dashboard</span><span id="footer-source"></span>
+          <details id="atlas-build-info"><summary>Build details · 2026.11.22+565c941286bc</summary><dl><dt>Skill version</dt><dd>2026.11.22+565c941286bc</dd><dt>Source updated</dt><dd><time datetime="2026-11-22T17:36:13Z">2026-11-22 17:36:13 UTC</time></dd><dt>Git commit</dt><dd><a href="https://github.com/nishantpatel9999/performance-atlas-dashboard/commit/565c941286bca6581fd3937ffff6407518f0b4df"><code>565c941286bca6581fd3937ffff6407518f0b4df</code></a></dd><dt>Report built</dt><dd><time datetime="2026-11-22T17:36:51Z">2026-11-22 17:36:51 UTC</time></dd></dl></details><script id="atlas-build" type="application/json">{"built_utc":"2026-11-22T17:36:51Z","channel":"codex/performance-report","repository":"nishantpatel9999/performance-atlas-dashboard","revision":"565c941286bca6581fd3937ffff6407518f0b4df","revision_utc":"2026-11-22T17:36:13Z","schema":1,"skill":"performance-atlas-report","version":"2026.11.22+565c941286bc"}</script>
         </footer>
       </main>
     </div>
