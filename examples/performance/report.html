@@ -7295,6 +7295,29 @@ html:has(#series-picker[open]) { overflow: hidden; }
       }
     });
 
+    // Keep native panning and momentum. Some mobile browsers deliver a complete
+    // swipe to a modal without moving its overflowing list.
+    let swipe = null;
+    list.addEventListener("touchstart", (event) => {
+      const touch = event.touches[0];
+      swipe = event.touches.length === 1
+        ? { id: touch.identifier, x: touch.clientX, y: touch.clientY, top: list.scrollTop }
+        : null;
+    }, { passive: true });
+    list.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
+    list.addEventListener("touchend", (event) => {
+      const start = swipe, touch = event.changedTouches[0];
+      swipe = null;
+      if (!start || event.touches.length || touch.identifier !== start.id) return;
+      const distance = start.y - touch.clientY;
+      if (Math.abs(distance) < 20 || Math.abs(distance) <= Math.abs(start.x - touch.clientX)) return;
+      requestAnimationFrame(() => {
+        if (dialog.open && !swipe && Math.abs(list.scrollTop - start.top) < 1) {
+          list.scrollTop = start.top + distance;
+        }
+      });
+    }, { passive: true });
+
     list.addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button || button.disabled) return;
