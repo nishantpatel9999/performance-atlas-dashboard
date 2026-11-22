@@ -22,6 +22,12 @@ Use **Settings** to change the date range, rolling window, annual risk-free rate
 
 **Interpreting the additional statistics.** The gain-to-pain ratio divides the sum of signed period returns by the absolute sum of negative returns. Cumulative log return is the natural logarithm of ending equity divided by opening equity. Both equity values must be positive. In the trade table, the largest winner’s share of gross profit and largest loser’s share of gross loss show whether a few trades dominate the result. The rolling success percentages use overlapping historical windows. The table gives the eligible count and exclusions for each horizon.
 
+### Select a strategy on a phone
+
+Open the strategy or portfolio field. The picker shows the current selection and the number of available choices. Swipe the list to reach either end. Tap a name to update the current report view, or tap Close to keep your selection. In a report that loads portfolios separately, the strategy count applies to the loaded portfolio.
+
+When verifying a report, use a list longer than the phone screen. Swipe to the last item, select it and check the displayed history. Reopen the picker and check that the selected item is visible. Repeat in landscape and check that the desktop selector still works.
+
 ## Connect a project
 
 Start with [the example manifest](../examples/performance/report.json), [its monthly CSV](../examples/performance/monthly-marks.csv), and [its optional activity file](../examples/performance/overnight.json). Run the following command from the repository root.

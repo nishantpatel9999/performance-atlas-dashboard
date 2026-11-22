@@ -193,6 +193,12 @@
           <div class="series-field">
             <label for="series-select" id="series-label">Series</label
             ><select id="series-select"></select>
+            <button type="button" id="series-picker-trigger" class="series-picker-trigger" hidden
+              aria-haspopup="dialog" aria-controls="series-picker" aria-expanded="false"
+              aria-labelledby="series-label series-picker-value">
+              <span id="series-picker-value"></span>
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+            </button>
           </div>
           <div class="range-control">
             <span class="field-label">Date range</span>
@@ -238,6 +244,16 @@
         </footer>
       </main>
     </div>
+    <dialog id="series-picker" aria-labelledby="series-picker-title" aria-describedby="series-picker-count">
+      <div class="series-picker-heading">
+        <div>
+          <h2 id="series-picker-title">Choose series</h2>
+          <span id="series-picker-count"></span>
+        </div>
+        <button type="button" id="series-picker-close">Close</button>
+      </div>
+      <div id="series-options"></div>
+    </dialog>
     <dialog id="settings" aria-labelledby="settings-heading">
       <form id="settings-form">
         <div class="dialog-header">

@@ -2185,6 +2185,92 @@
         ? doc.title
         : doc.title + " · Performance Atlas Dashboard";
   }
+  function setupSeriesPicker() {
+    const select = $("series-select"), trigger = $("series-picker-trigger");
+    const dialog = $("series-picker"), list = $("series-options"), label = $("series-label");
+    if (typeof dialog.showModal !== "function") return;
+    const compact = matchMedia("(max-width: 760px), (any-pointer: coarse)");
+
+    function sync() {
+      if (dialog.open) dialog.close();
+      select.hidden = compact.matches;
+      trigger.hidden = !compact.matches;
+      label.htmlFor = compact.matches ? trigger.id : select.id;
+      trigger.disabled = select.disabled || !select.options.length;
+      $("series-picker-value").textContent = select.selectedOptions[0]?.label || "";
+    }
+
+    trigger.addEventListener("click", () => {
+      const kind = byId.get(state.id).kind;
+      $("series-picker-title").textContent = "Choose " + kind;
+      const n = select.options.length;
+      $("series-picker-count").textContent = n + " " + (n === 1 ? kind : sections[kind]);
+      list.replaceChildren(...Array.from(select.options, (option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.value = option.value;
+        button.disabled = option.matches(":disabled");
+        button.textContent = option.label;
+        if (option.selected) {
+          button.setAttribute("aria-current", "true");
+          const mark = document.createElement("span");
+          mark.setAttribute("aria-hidden", "true");
+          mark.textContent = "✓";
+          button.append(mark);
+        }
+        return button;
+      }));
+      dialog.showModal();
+      trigger.setAttribute("aria-expanded", "true");
+      const current = list.querySelector('[aria-current="true"]:enabled') || list.querySelector(":enabled");
+      if (current) {
+        current.focus({ preventScroll: true });
+        list.scrollTop = current.offsetTop - (list.clientHeight - current.offsetHeight) / 2;
+      }
+    });
+
+    list.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button || button.disabled) return;
+      dialog.close();
+      if (select.value !== button.dataset.value) {
+        select.value = button.dataset.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    list.addEventListener("keydown", (event) => {
+      if (!["Home", "End", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+      const buttons = Array.from(list.querySelectorAll("button:enabled"));
+      const index = buttons.indexOf(document.activeElement);
+      if (index < 0) return;
+      event.preventDefault();
+      const last = buttons.length - 1;
+      const next = { Home: 0, End: last, ArrowDown: Math.min(index + 1, last), ArrowUp: Math.max(index - 1, 0) };
+      buttons[next[event.key]].focus();
+    });
+    $("series-picker-close").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => {
+      if (dialog.open) return;
+      trigger.setAttribute("aria-expanded", "false");
+      (compact.matches ? trigger : select).focus({ preventScroll: true });
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right ||
+          event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+    });
+
+    // Hosted reports can replace the options or disable the selector while loading a book.
+    new MutationObserver(sync).observe(select, {
+      childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: ["disabled", "selected", "label"],
+    });
+    compact.addEventListener("change", sync);
+    select.addEventListener("change", sync);
+    sync();
+  }
+
   function render() {
     const s = byId.get(state.id),
       title = viewTitle();
@@ -2299,8 +2385,10 @@
       state.range = "All";
   }
   function navigate(view) {
-    if (!views[view]) return;
+    if (!Object.hasOwn(views, view)) return;
+    if (view === "activity" && byId.get(state.id).kind !== "portfolio") view = "overview";
     state.view = view;
+    if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
     showSidebar(false);
     render();
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -2541,7 +2629,14 @@
     }, 100);
   });
   const glossary = window.PerformanceGlossary.mount({ report: doc });
+  setupSeriesPicker();
   wireChrome();
   syncNavAccess();
-  render();
+  const linkedView = location.hash.slice(1);
+  if (Object.hasOwn(views, linkedView)) navigate(linkedView);
+  else render();
+  window.addEventListener("hashchange", () => {
+    const target = location.hash.slice(1);
+    if (Object.hasOwn(views, target) && target !== state.view) navigate(target);
+  });
 })();
