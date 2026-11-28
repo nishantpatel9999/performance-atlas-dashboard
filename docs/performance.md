@@ -97,6 +97,8 @@ Custom shell producers using the pinned package must replace the template’s `<
 | `tradesCsv` | CSV with `time,pnl` for each closed trade. Optional `side` and `holdingHours` columns enable side and holding-time analysis. An inline `trades` array uses epoch milliseconds. |
 | `tradeSummary`, `costs`, `sourceMetrics` | Full-history source figures. Include cost currency and identify the costs covered by each total. The date filter applies to dated observations. |
 | `holdings` | A list of `{"id":"strategy-id","weight":0.30}` objects. State the date and meaning of the snapshot in `evidence.holdingsBasis`, such as ending net equity or target risk budget. |
+
+For futures contract portfolios, size positions and capital with [the portfolio sizing guide](portfolio-sizing.md). It defines the capital step per contract, pooled or siloed funding, margin stress scenarios and the sizing evidence a report must show.
 | `evidence.attribution` | For explicitly funded sleeves, set `{"basis":"funded_equity","members":["trend","carry"]}`. The analyzer checks the currency, dates and portfolio reconciliation before reporting contributions. |
 | `diagnostics` | Additional dated measurements for each strategy or portfolio. Each record has `name`, `unit`, optional `description`, and `times` and `values` arrays or a relative CSV. Unit `%` takes fractions. Missing values appear as gaps. |
 | `evidence` | Attach run version, rules, time splits, cost assumptions, capacity estimates and completed research tests. [Evidence manifest and coverage](report-coverage.md) |
@@ -129,9 +131,9 @@ Broker buying power, interest paid on a margin loan, account equity, and the ove
 
 The five-session example shows a modeled USD 318 requirement on December 22, a missing FX rate on December 26, an account-level options amount on December 27, required equity on December 28, and an intraday exit with zero overnight margin on December 29. All figures are synthetic. Click a date to see the inputs behind a calculation. The seven-year standalone demo uses actual simulated positions, with explicitly illustrative long and short rates. [Worked example](../examples/performance/overnight.json)
 
-## Native Quantreo runs
+## Native research-pipeline runs
 
-Use the strategy HTML or book construction HTML entry point from the pinned release in the project's Quantreo environment. Bind its data root to the actual project containing the vault, saved runs and market data. Confirm the resolved paths and output destination before running. Changing the shell directory alone can leave a native adapter reading data relative to its module. If the adapter cannot bind the project root, export the project's saved marks to the portable manifest and use the pinned launcher. Keep sealed tests closed. With the engine and project paths confirmed, use the existing native commands.
+Use the strategy HTML or book construction HTML entry point from the pinned release in the project's research-pipeline environment. Bind its data root to the actual project containing the vault, saved runs and market data. Confirm the resolved paths and output destination before running. Changing the shell directory alone can leave a native adapter reading data relative to its module. If the adapter cannot bind the project root, export the project's saved marks to the portable manifest and use the pinned launcher. Keep sealed tests closed. With the engine and project paths confirmed, use the existing native commands.
 
 ```sh
 python3 -m lab.strategy_report "My strategy" html --output results/strategy.html
