@@ -99,6 +99,8 @@ Custom shell producers using the pinned package must replace the template’s `<
 | `tradesCsv` | CSV with `time,pnl` for each closed trade. Optional `side` and `holdingHours` columns enable side and holding-time analysis. An inline `trades` array uses epoch milliseconds. |
 | `tradeSummary`, `costs`, `sourceMetrics` | Full-history source figures. Include cost currency and identify the costs covered by each total. The date filter applies to dated observations. |
 | `holdings` | A list of `{"id":"strategy-id","weight":0.30}` objects. State the date and meaning of the snapshot in `evidence.holdingsBasis`, such as ending net equity or target risk budget. |
+
+For futures contract portfolios, size positions and capital with [the portfolio sizing guide](portfolio-sizing.md). It defines the capital step per contract, pooled or siloed funding, margin stress scenarios and the sizing evidence a report must show.
 | `evidence.attribution` | For funded sleeves, set `{"basis":"funded_equity","members":["trend","carry"]}` and supply their equity histories. For an additive paper book, set `{"basis":"paper_additive"}` and supply daily member P&L. |
 | `evidence.paperContributions` | For a paper book, supply UTC close `dates`, a `byMember` object with one numeric array per member ID, and `unit: "fraction of opening paper index"`. Each value is the member’s already-sized daily P&L divided by the book’s original opening capital. |
 | `diagnostics` | Additional dated measurements for each strategy or portfolio. Each record has `name`, `unit`, optional `description`, and `times` and `values` arrays or a relative CSV. Unit `%` takes fractions. Missing values appear as gaps. |
@@ -154,9 +156,9 @@ Use `schedule_scenario` for a later or hypothetical schedule applied to historic
 
 Each Metric explorer card keeps the original value intervals and observation counts. Concentrated distributions start with a logarithmic count axis. The height uses `log(1 + count)` so zero remains zero. Click the axis label to switch between linear and logarithmic heights. The horizontal values and the counts shown on hover or keyboard focus stay in their original units.
 
-## Native Quantreo runs
+## Native research-pipeline runs
 
-Use the strategy HTML or book construction HTML entry point from the pinned release in the project's Quantreo environment. Bind its data root to the actual project containing the vault, saved runs and market data. Confirm the resolved paths and output destination before running. Changing the shell directory alone can leave a native adapter reading data relative to its module. If the adapter cannot bind the project root, export the project's saved marks to the portable manifest and use the pinned launcher. Keep sealed tests closed. With the engine and project paths confirmed, use the existing native commands.
+Use the strategy HTML or book construction HTML entry point from the pinned release in the project's research-pipeline environment. Bind its data root to the actual project containing the vault, saved runs and market data. Confirm the resolved paths and output destination before running. Changing the shell directory alone can leave a native adapter reading data relative to its module. If the adapter cannot bind the project root, export the project's saved marks to the portable manifest and use the pinned launcher. Keep sealed tests closed. With the engine and project paths confirmed, use the existing native commands.
 
 ```sh
 python3 -m lab.strategy_report "My strategy" html --output results/strategy.html
