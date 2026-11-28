@@ -300,7 +300,7 @@ class InputTests(unittest.TestCase):
 HAS_NATIVE = all(importlib.util.find_spec(mod) is not None for mod in ("numpy", "pandas", "pyarrow", "matplotlib"))
 
 
-@unittest.skipUnless(HAS_NATIVE, "native reports use the existing Quantreo environment")
+@unittest.skipUnless(HAS_NATIVE, "native reports use the existing research-pipeline environment")
 class NativeTests(unittest.TestCase):
     def setUp(self):
         import pandas as pd
