@@ -1,7 +1,7 @@
 [project]
 name = "ai-quant-pod"
 version = "0.1.0"
-description = "A research pod of Claude Code agents for systematic trading (Quantreo, AI Quant Pod)."
+description = "A systematic trading research system: AI-agent research pipeline, backtesting library, portfolio construction and verified interactive performance reports."
 authors = [
     {name = "Lucas Inglese", email = "lucas@quantreo.com"}
 ]

@@ -1,4 +1,4 @@
-"""Export Quantreo saved strategies and the existing all-candidate book construction.
+"""Export saved research-pipeline strategies and the existing all-candidate book construction.
 
 Native construction always sizes on the upstream 365-period basis. Report ratios use 365
 for a seven-day UTC calendar or 252 for weekdays. The default recognizes weekday-only
@@ -275,7 +275,7 @@ def _strategy(name, currency, capital, require_test, *, read_positions=False):
         card = {}
     item = {"id": name, "name": name, "kind": "strategy", "currency": currency,
             "frequency": "daily", "periodsPerYear": book_report.A,
-            "accounting": "Net P&L on fixed initial capital", "source": "Quantreo saved run ledger",
+            "accounting": "Net P&L on fixed initial capital", "source": "research-pipeline saved run ledger",
             "evidence": {"type": "native", "method": "Add each scored bar's net contribution to initial capital.",
                          "runs": sources, "variant": variant, "openedTest": lock is not None,
                          "splits": {"train": list(train), "validation": list(valid), "testStart": test_start}},
@@ -535,7 +535,7 @@ def book_bundle(name, strategies=(), imports=(), *, currency=None, opening_date=
                                         "then multiply by the book-to-strategy target volatility ratio.")
     item = {"id": name, "name": name, "kind": "portfolio", "currency": currency,
             "frequency": "daily", "periodsPerYear": book_report.A, "times": times,
-            "equity": equity_from_returns(pnl, capital, "contributions"), "source": "Quantreo book construction",
+            "equity": equity_from_returns(pnl, capital, "contributions"), "source": "research-pipeline book construction",
             "accounting": "Risk-scaled daily net contributions on fixed initial capital",
             "holdings": [{"id": n, "weight": float(weights[n])} for n in names],
             "evidence": {"type": "native", "method": "All-candidate construction with native lagged volatility sizing. "
